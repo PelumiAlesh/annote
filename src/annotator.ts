@@ -260,6 +260,63 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
   const TOOLBAR_RAIL_HEIGHT = 264;
   const TOOLBAR_COLLAPSED_HEIGHT = 58;
 
+  const SHORTCUTS: Record<string, string> = {
+    "toggle-pick": "P",
+    copy: "C",
+    clear: "⌫",
+    "delete-current": "⌫",
+  };
+
+  function isTypingInInput(target: EventTarget | null): boolean {
+    const element = target instanceof HTMLElement ? target : null;
+    if (element) {
+      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) return true;
+      if (element.isContentEditable) return true;
+      if (element.closest('[contenteditable="true"]')) return true;
+      if (element.closest("input, textarea, [contenteditable]")) return true;
+    }
+    const active =
+      (document.activeElement as HTMLElement | null) ||
+      (state.shadow?.activeElement as HTMLElement | null);
+    if (active) {
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return true;
+      if (active.isContentEditable) return true;
+      if (active.closest('[contenteditable="true"]')) return true;
+    }
+    return false;
+  }
+
+  function shortcutForAction(action: string | null): string | null {
+    return action ? SHORTCUTS[action] || null : null;
+  }
+
+  function shortcutForControl(control: HTMLElement): string | null {
+    const action = control.getAttribute("data-action");
+    if (action) {
+      const fromAction = shortcutForAction(action);
+      if (fromAction) return fromAction;
+    }
+    return control.getAttribute("data-shortcut");
+  }
+
+  function tooltipAttributes({ label, shortcut }: { label: string; shortcut?: string | null }): string {
+    const attrs = [`aria-label="${escapeHtml(label)}"`, `data-tooltip="${escapeHtml(label)}"`];
+    if (shortcut) attrs.push(`data-shortcut="${escapeHtml(shortcut)}"`);
+    return attrs.join(" ");
+  }
+
+  function shouldPreventUnderlyingAction(): boolean {
+    if (!state.active || !state.settings.preventPageActions) return false;
+    return !!(state.hoverElement || state.selectedElement || state.selectedElements.length);
+  }
+
+  function preventUnderlyingAction(event: Event): void {
+    if (!shouldPreventUnderlyingAction() || isAnnotatorNode(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if ("stopImmediatePropagation" in event) (event as Event & { stopImmediatePropagation(): void }).stopImmediatePropagation();
+  }
+
   type ColorisApi = {
     (options: Record<string, unknown>): void;
     setInstance?: (selector: string | HTMLElement | HTMLElement[], options: Record<string, unknown>) => void;
@@ -2389,16 +2446,22 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
       .toolbar::before,
       .launcher-wrap::before {
         top: -18px;
+        right: -1px;
+        width: 19px;
+        height: 19px;
         background: #1a1a1a;
-        -webkit-mask: radial-gradient(circle at 0 0, transparent 17px, #000 18px);
-        mask: radial-gradient(circle at 0 0, transparent 17px, #000 18px);
+        -webkit-mask: radial-gradient(circle at 0 0, transparent 18px, #000 19px);
+        mask: radial-gradient(circle at 0 0, transparent 18px, #000 19px);
       }
       .toolbar::after,
       .launcher-wrap::after {
         bottom: -18px;
+        right: -1px;
+        width: 19px;
+        height: 19px;
         background: #1a1a1a;
-        -webkit-mask: radial-gradient(circle at 0 100%, transparent 17px, #000 18px);
-        mask: radial-gradient(circle at 0 100%, transparent 17px, #000 18px);
+        -webkit-mask: radial-gradient(circle at 0 100%, transparent 18px, #000 19px);
+        mask: radial-gradient(circle at 0 100%, transparent 18px, #000 19px);
       }
       .toolbar.opening {
         animation: fm-toolbar-open 400ms cubic-bezier(.19,1,.22,1);
@@ -2544,32 +2607,6 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         stroke-linecap: round;
         stroke-linejoin: round;
       }
-      .launcher-tooltip {
-        position: absolute;
-        top: 50%;
-        right: calc(100% + 10px);
-        transform: translateX(4px) translateY(-50%) scale(.96);
-        opacity: 0;
-        visibility: hidden;
-        pointer-events: none;
-        white-space: nowrap;
-        background: #1a1a1a;
-        color: rgba(255,255,255,.9);
-        border-radius: 8px;
-        padding: 6px 10px;
-        font-size: 12px;
-        font-weight: 400;
-        line-height: 1.2;
-        z-index: 2147483647;
-        box-shadow: 0 2px 8px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.06);
-        transition: opacity 135ms ease, transform 135ms ease, visibility 135ms ease;
-      }
-      .launcher-wrap:hover .launcher-tooltip,
-      .launcher-wrap:focus-visible .launcher-tooltip {
-        opacity: 1;
-        visibility: visible;
-        transform: translateX(0) translateY(-50%) scale(1);
-      }
       .toolbar-group-tooltip {
         position: fixed;
         z-index: 2147483647;
@@ -2614,6 +2651,18 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         font-size: 12px;
         line-height: 16px;
         font-weight: 400;
+      }
+      .toolbar-tooltip-copy {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .toolbar-tooltip-shortcut {
+        color: rgba(255,255,255,.42);
+        font-size: 11px;
+        font-weight: 400;
+        letter-spacing: 0.02em;
+        flex: 0 0 auto;
       }
       .toolbar-group-tooltip.multiline .toolbar-tooltip-copy {
         white-space: normal;
@@ -4473,32 +4522,6 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         line-height: 1;
         cursor: help;
       }
-      .settings-help-tip::after {
-        content: attr(aria-label);
-        position: absolute;
-        right: 0;
-        top: calc(100% + 6px);
-        z-index: 2147483647;
-        width: max-content;
-        max-width: 180px;
-        border-radius: 6px;
-        padding: 7px 8px;
-        background: rgba(22,22,24,.98);
-        box-shadow: 0 8px 24px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.08);
-        color: rgba(255,255,255,.78);
-        font-size: 10px;
-        line-height: 1.35;
-        white-space: normal;
-        opacity: 0;
-        transform: translateY(4px);
-        pointer-events: none;
-        transition: opacity 120ms ease, transform 120ms ease;
-      }
-      .settings-help-tip:hover::after,
-      .settings-help-tip:focus-visible::after {
-        opacity: 1;
-        transform: translateY(0);
-      }
       .settings-help-tip:focus-visible {
         outline: none;
         box-shadow: 0 0 0 2px rgba(255,122,26,.42);
@@ -5138,7 +5161,9 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     extraClass = "",
     attrs = "",
   ): string {
-    return `<button class="icon-btn ${extraClass}" data-action="${action}" aria-label="${label}" type="button" ${attrs}>${icon(iconName)}</button>`;
+    const shortcut = SHORTCUTS[action] || null;
+    const tipAttrs = tooltipAttributes({ label, shortcut });
+    return `<button class="icon-btn ${extraClass}" data-action="${action}" ${tipAttrs} type="button" ${attrs}>${icon(iconName)}</button>`;
   }
 
   function textButton(action: string, label: string, extraClass = "", type = "button", attrs = ""): string {
@@ -6112,7 +6137,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     return `<button class="settings-row" type="button" role="switch" aria-checked="${checked ? "true" : "false"}" data-action="toggle-setting" data-setting="${key}">
       <span class="settings-row-label">
         <strong>${escapeHtml(label)}</strong>
-        <span class="settings-help-tip" tabindex="0" aria-label="${escapeHtml(help)}">?</span>
+        <span class="settings-help-tip" tabindex="0" aria-label="${escapeHtml(help)}" data-tooltip="${escapeHtml(help)}">?</span>
       </span>
       <span class="settings-toggle" aria-hidden="true"></span>
     </button>`;
@@ -6150,7 +6175,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
           <button class="settings-row" type="button" data-action="settings-view" data-settings-view="mcp">
             <span class="settings-row-label">
               <strong>MCP</strong>
-              <span class="settings-help-tip" tabindex="0" aria-label="Connect Annote to your coding agent.">?</span>
+              <span class="settings-help-tip" tabindex="0" aria-label="Connect Annote to your coding agent." data-tooltip="Connect Annote to your coding agent.">?</span>
             </span>
             <span class="settings-row-meta">${mcpNeedsApproval() ? `<span class="settings-approval-dot" aria-hidden="true"></span>` : ""}<span>${escapeHtml(mcpStatusLabel(state.mcpStatus))}</span><span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
           </button>
@@ -6808,19 +6833,34 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     state.shadow?.querySelector("[data-toolbar-tooltip]")?.classList.remove("visible", "multiline");
   }
 
-  function showToolbarTooltip(control: HTMLElement): void {
+  function getTooltipContent(control: HTMLElement): { label: string; shortcut: string | null } | null {
+    const label = control.getAttribute("data-tooltip") || control.getAttribute("aria-label") || "";
+    if (!label) return null;
+    const shortcut = shortcutForControl(control) || control.getAttribute("data-shortcut");
+    return { label, shortcut: shortcut || null };
+  }
+
+  function showAnnoteTooltip(control: HTMLElement): void {
     if (!control.isConnected || control.matches(":disabled")) return;
-    const toolbar = control.closest(".toolbar");
     const tooltip = state.shadow?.querySelector<HTMLElement>("[data-toolbar-tooltip]");
     const copy = tooltip?.querySelector<HTMLElement>("[data-toolbar-tooltip-copy]");
     const sizer = state.shadow?.querySelector<HTMLElement>("[data-toolbar-tooltip-sizer]");
-    if (!toolbar?.classList.contains("tooltips-ready") || !tooltip || !copy || !sizer) return;
-
-    const label = control.getAttribute("aria-label") || "";
+    if (!tooltip || !copy || !sizer) return;
+    const content = getTooltipContent(control);
+    if (!content) return;
+    const { label, shortcut } = content;
+    const displayForMeasure = shortcut ? `${label}  ${shortcut}` : label;
     const controlRect = control.getBoundingClientRect();
+    const isRail = !!control.closest(".toolbar, .launcher-wrap");
+    // Use toolbar's warm/ready gating only for rail, but keep animation for all
+    if (isRail) {
+      const toolbar = control.closest(".toolbar");
+      if (toolbar && !toolbar.classList.contains("tooltips-ready")) return;
+    }
     const center = controlRect.top + controlRect.height / 2;
     const travel = toolbarTooltipLastCenter === null ? 0 : Math.sign(center - toolbarTooltipLastCenter) * 10;
     const wasVisible = tooltip.classList.contains("visible");
+    const multiline = displayForMeasure.length > 28;
 
     toolbarTooltipActive?.removeAttribute("aria-describedby");
     toolbarTooltipActive = control;
@@ -6829,11 +6869,28 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     toolbarTooltipLastCenter = center;
     control.setAttribute("aria-describedby", "feedback-mark-toolbar-tooltip");
 
-    sizer.textContent = label;
-    copy.textContent = label;
-    const width = Math.min(220, Math.ceil(sizer.getBoundingClientRect().width));
-    const left = Math.max(8, controlRect.left - width - 12);
-    const top = Math.max(8, Math.min(innerHeight - 28 - 8, center - 14));
+    sizer.textContent = displayForMeasure;
+    if (shortcut) {
+      copy.innerHTML = `<span>${escapeHtml(label)}</span><span class="toolbar-tooltip-shortcut">${escapeHtml(shortcut)}</span>`;
+    } else {
+      copy.textContent = label;
+    }
+    tooltip.classList.toggle("multiline", multiline);
+    let width: number;
+    let left: number;
+    let top: number;
+    if (isRail) {
+      width = Math.min(220, Math.ceil(sizer.getBoundingClientRect().width));
+      left = Math.max(8, controlRect.left - width - 12);
+      top = Math.max(8, Math.min(innerHeight - 28 - 8, center - 14));
+    } else {
+      width = multiline ? 200 : Math.min(220, Math.max(28, Math.ceil(displayForMeasure.length * 7.2) + 20));
+      left = Math.max(8, Math.min(innerWidth - width - 8, controlRect.left + controlRect.width / 2 - width / 2));
+      const estimatedHeight = multiline ? 56 : 28;
+      const above = controlRect.top - estimatedHeight - 8 >= 8;
+      top = above ? controlRect.top - estimatedHeight - 8 : controlRect.bottom + 8;
+      top = Math.max(8, Math.min(innerHeight - estimatedHeight - 8, top));
+    }
     tooltip.style.width = `${width}px`;
     tooltip.style.left = `${Math.round(left)}px`;
     tooltip.style.top = `${Math.round(top)}px`;
@@ -6851,36 +6908,12 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     }
   }
 
+  function showToolbarTooltip(control: HTMLElement): void {
+    showAnnoteTooltip(control);
+  }
+
   function showFloatingTooltip(control: HTMLElement): void {
-    if (!control.isConnected || control.matches(":disabled")) return;
-    const tooltip = state.shadow?.querySelector<HTMLElement>("[data-toolbar-tooltip]");
-    const copy = tooltip?.querySelector<HTMLElement>("[data-toolbar-tooltip-copy]");
-    const sizer = state.shadow?.querySelector<HTMLElement>("[data-toolbar-tooltip-sizer]");
-    if (!tooltip || !copy || !sizer) return;
-
-    const label = control.getAttribute("aria-label") || "";
-    if (!label) return;
-    const controlRect = control.getBoundingClientRect();
-    const multiline = label.length > 28;
-    const width = multiline ? 200 : Math.min(220, Math.max(28, Math.ceil(label.length * 7.2) + 20));
-    const left = Math.max(8, Math.min(innerWidth - width - 8, controlRect.left + controlRect.width / 2 - width / 2));
-    const estimatedHeight = multiline ? 56 : 28;
-    const above = controlRect.top - estimatedHeight - 8 >= 8;
-    const top = above ? controlRect.top - estimatedHeight - 8 : controlRect.bottom + 8;
-
-    toolbarTooltipActive?.removeAttribute("aria-describedby");
-    toolbarTooltipActive = control;
-    toolbarTooltipPending = null;
-    control.setAttribute("aria-describedby", "feedback-mark-toolbar-tooltip");
-    copy.textContent = label;
-    sizer.textContent = label;
-    tooltip.classList.toggle("multiline", multiline);
-    tooltip.style.width = `${width}px`;
-    tooltip.style.left = `${Math.round(left)}px`;
-    tooltip.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - estimatedHeight - 8, top)))}px`;
-    requestAnimationFrame(() => {
-      if (toolbarTooltipActive === control) tooltip.classList.add("visible");
-    });
+    showAnnoteTooltip(control);
   }
 
   function openFloatingTooltip(control: HTMLElement): void {
@@ -6946,14 +6979,69 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     else toolbarTooltipCloseTimer = window.setTimeout(close, 120);
   }
 
-  function bindToolbarTooltipGroup(root: ShadowRoot): void {
-    root.querySelectorAll<HTMLElement>(".toolbar [aria-label]").forEach((control) => {
-      control.addEventListener("pointerenter", () => openToolbarTooltip(control));
-      control.addEventListener("pointerleave", () => closeToolbarTooltip(control));
-      control.addEventListener("focus", () => openToolbarTooltip(control, true));
-      control.addEventListener("blur", () => closeToolbarTooltip(control, true));
-      control.addEventListener("pointerdown", () => resetToolbarTooltipGroup(true));
+  function openAnnoteTooltip(control: HTMLElement, immediate = false): void {
+    const isRail = !!control.closest(".toolbar, .launcher-wrap");
+    if (isRail) {
+      openToolbarTooltip(control, immediate);
+      return;
+    }
+    toolbarTooltipCloseTimer = clearToolbarTooltipTimer(toolbarTooltipCloseTimer);
+    toolbarTooltipCoolTimer = clearToolbarTooltipTimer(toolbarTooltipCoolTimer);
+    toolbarTooltipOpenTimer = clearToolbarTooltipTimer(toolbarTooltipOpenTimer);
+    toolbarTooltipPending = control;
+    if (immediate) {
+      showAnnoteTooltip(control);
+      return;
+    }
+    toolbarTooltipOpenTimer = window.setTimeout(() => {
+      toolbarTooltipOpenTimer = null;
+      if (toolbarTooltipPending === control) showAnnoteTooltip(control);
+    }, 120);
+  }
+
+  function closeAnnoteTooltip(control: HTMLElement, immediate = false): void {
+    const isRail = !!control.closest(".toolbar, .launcher-wrap");
+    if (isRail) {
+      closeToolbarTooltip(control, immediate);
+      return;
+    }
+    if (toolbarTooltipPending === control) {
+      toolbarTooltipOpenTimer = clearToolbarTooltipTimer(toolbarTooltipOpenTimer);
+      toolbarTooltipPending = null;
+    }
+    if (toolbarTooltipActive !== control) return;
+    toolbarTooltipCloseTimer = clearToolbarTooltipTimer(toolbarTooltipCloseTimer);
+    const close = (): void => {
+      toolbarTooltipCloseTimer = null;
+      control.removeAttribute("aria-describedby");
+      if (toolbarTooltipActive === control) toolbarTooltipActive = null;
+      state.shadow?.querySelector("[data-toolbar-tooltip]")?.classList.remove("visible", "multiline");
+      toolbarTooltipCoolTimer = window.setTimeout(() => {
+        toolbarTooltipCoolTimer = null;
+        toolbarTooltipWarm = false;
+        toolbarTooltipLastCenter = null;
+      }, 400);
+    };
+    if (immediate) close();
+    else toolbarTooltipCloseTimer = window.setTimeout(close, 80);
+  }
+
+  function resetAnnoteTooltip(resetWarm = false): void {
+    resetToolbarTooltipGroup(resetWarm);
+  }
+
+  function bindAnnoteTooltip(root: ShadowRoot): void {
+    root.querySelectorAll<HTMLElement>("[data-tooltip]").forEach((control) => {
+      control.addEventListener("pointerenter", () => openAnnoteTooltip(control));
+      control.addEventListener("pointerleave", () => closeAnnoteTooltip(control));
+      control.addEventListener("focus", () => openAnnoteTooltip(control, true));
+      control.addEventListener("blur", () => closeAnnoteTooltip(control, true));
+      control.addEventListener("pointerdown", () => resetAnnoteTooltip(true));
     });
+  }
+
+  function bindToolbarTooltipGroup(root: ShadowRoot): void {
+    bindAnnoteTooltip(root);
   }
 
   function render(): void {
@@ -7018,7 +7106,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
       <div class="fm-layer ${state.active ? "active" : ""}">
         ${
           collapsed
-            ? `<div class="launcher-wrap ${state.toolbarDrag ? "dragging" : ""}" data-toolbar-rail data-action="open-toolbar" role="button" tabindex="0" aria-label="Click to open or hold to drag" style="${railStyle}"><span class="icon-btn launcher" aria-hidden="true">${icon("note")}</span><span class="launcher-tooltip" role="tooltip">Click to open or hold to drag</span></div>`
+            ? `<div class="launcher-wrap ${state.toolbarDrag ? "dragging" : ""}" data-toolbar-rail data-action="open-toolbar" role="button" tabindex="0" aria-label="Click to open or hold to drag" data-tooltip="Click to open or hold to drag" style="${railStyle}"><span class="icon-btn launcher" aria-hidden="true">${icon("note")}</span></div>`
             : `<div class="toolbar ${state.toolbarOpening ? "opening" : ""} ${state.toolbarClosing ? "closing" : ""} ${state.toolbarTooltipsReady ? "tooltips-ready" : ""}" style="${railStyle}">
                 <div class="toolbar-controls">
                   ${iconButton("toggle-pick", state.active ? "Stop picking" : "Pick element", "target", "pick-toggle")}
@@ -7311,12 +7399,9 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         if (action === "collapse") {
           collapseToolbar();
         }
-        if (action === "delete-current" && state.editingId) {
-          const idToDelete = state.editingId;
-          animateComposerOut(() => deleteAnnotation(idToDelete));
-        }
+        if (action === "delete-current") requestDeleteCurrent();
         if (action === "copy") void copyMarkdown();
-        if (action === "clear" && confirm("Clear all local annotations for this page?")) clear();
+        if (action === "clear") requestClearAnnotations();
         if (action === "destroy") destroy();
         if (action === "cancel-compose") {
           requestCancelComposer();
@@ -8116,6 +8201,18 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     render();
   }
 
+  function requestDeleteCurrent(): void {
+    if (!state.editingId) return;
+    const id = state.editingId;
+    animateComposerOut(() => deleteAnnotation(id));
+  }
+
+  function requestClearAnnotations(): void {
+    if (!state.annotations.length) return;
+    if (!confirm("Clear all local annotations for this page?")) return;
+    clear();
+  }
+
   function onPointerMove(event: PointerEvent): void {
     if (!state.active) return;
     if (state.shiftSelecting && !event.shiftKey) resetShiftSelectionState();
@@ -8190,10 +8287,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     const target = choosePickTarget(element);
     const anchor = { x: event.clientX, y: event.clientY };
     if (event.shiftKey) {
-      if (state.settings.preventPageActions) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
+      preventUnderlyingAction(event);
       state.shiftSelecting = true;
       setAnnotatingCursor(true);
       if (state.selectedElement && !state.selectedElements.includes(state.selectedElement)) {
@@ -8205,10 +8299,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
       updateSelectionOnly();
       return;
     }
-    if (state.settings.preventPageActions) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
+    preventUnderlyingAction(event);
     if (state.selectedElement) {
       const clickedAnnotation = hoveredAnnotationForElement(target);
       if (blockDirtyComposerSwitch()) return;
@@ -8223,11 +8314,38 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
   }
 
   function onClick(event: MouseEvent): void {
-    if (!state.active || isAnnotatorNode(event.target) || !state.selectedElement) return;
-    if (!state.settings.preventPageActions) return;
+    if (!state.active || isAnnotatorNode(event.target)) return;
+    if (!shouldPreventUnderlyingAction()) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
+  }
+
+  function onPointerUp(event: PointerEvent): void {
+    preventUnderlyingAction(event);
+  }
+
+  function onMouseDown(event: MouseEvent): void {
+    preventUnderlyingAction(event);
+  }
+
+  function onMouseUp(event: MouseEvent): void {
+    preventUnderlyingAction(event);
+  }
+
+  function onAuxClick(event: MouseEvent): void {
+    preventUnderlyingAction(event);
+  }
+
+  function onContextMenu(event: MouseEvent): void {
+    if (!shouldPreventUnderlyingAction() || isAnnotatorNode(event.target)) return;
+    // Allow Annote's own context if needed, but prevent underlying
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function onSubmit(event: SubmitEvent): void {
+    preventUnderlyingAction(event);
   }
 
   function onKeyDown(event: KeyboardEvent): void {
@@ -8254,6 +8372,48 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
       updateSelectionOnly();
       return;
     }
+    if (!isTypingInInput(event.target)) {
+      const key = event.key.toLowerCase();
+      const isDelete = event.key === "Delete" || event.key === "Backspace";
+      if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (key === "p") {
+          event.preventDefault();
+          togglePick();
+          return;
+        }
+        if (key === "c") {
+          if (unresolvedAnnotations().length) {
+            event.preventDefault();
+            void copyMarkdown();
+          }
+          return;
+        }
+      }
+      if (isDelete && !event.ctrlKey && !event.metaKey) {
+        if (state.editingId) {
+          event.preventDefault();
+          requestDeleteCurrent();
+          return;
+        }
+        if (state.annotations.length) {
+          event.preventDefault();
+          requestClearAnnotations();
+          return;
+        }
+      }
+    }
+
+    if ((event.key === "Enter" || event.key === " ") && shouldPreventUnderlyingAction() && !isTypingInInput(event.target)) {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.matches('a, button, [role="button"]') || !!target.closest('a, button, [role="button"]'))) {
+        if (!isAnnotatorNode(target)) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
+    }
+
     if (event.key === "Escape") {
       if (state.selectedElements.length) {
         restorePreview();
@@ -8324,7 +8484,14 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
   function attachGlobalListeners(): void {
     document.addEventListener("pointermove", onPointerMove, true);
     document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("mousedown", onMouseDown, true);
+    document.addEventListener("mouseup", onMouseUp, true);
     document.addEventListener("click", onClick, true);
+    document.addEventListener("auxclick", onAuxClick, true);
+    document.addEventListener("contextmenu", onContextMenu, true);
+    document.addEventListener("dragstart", preventUnderlyingAction as EventListener, true);
+    document.addEventListener("submit", onSubmit, true);
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("blur", onWindowBlur, true);
@@ -8354,7 +8521,14 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     state.shadowClickBound = false;
     document.removeEventListener("pointermove", onPointerMove, true);
     document.removeEventListener("pointerdown", onPointerDown, true);
+    document.removeEventListener("pointerup", onPointerUp, true);
+    document.removeEventListener("mousedown", onMouseDown, true);
+    document.removeEventListener("mouseup", onMouseUp, true);
     document.removeEventListener("click", onClick, true);
+    document.removeEventListener("auxclick", onAuxClick, true);
+    document.removeEventListener("contextmenu", onContextMenu, true);
+    document.removeEventListener("dragstart", preventUnderlyingAction as EventListener, true);
+    document.removeEventListener("submit", onSubmit, true);
     document.removeEventListener("keydown", onKeyDown, true);
     document.removeEventListener("keyup", onKeyUp, true);
     window.removeEventListener("blur", onWindowBlur, true);
