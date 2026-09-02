@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Annote is visual feedback for coding agents. Point at UI, leave feedback, and let your agent act on the exact interface context." />
+  <meta name="theme-color" content="#f3f1ea" />
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="shortcut icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />
+  <link rel="shortcut icon" type="image/png" href="./favicon-32.png" />
+  <link rel="apple-touch-icon" href="./favicon.svg" />
+  <meta property="og:title" content="Annote — Visual feedback for coding agents" />
+  <meta property="og:description" content="Point at the UI. Leave feedback. Let your coding agent understand exactly what you mean." />
+  <meta property="og:type" content="website" />
+  <title>Annote — Visual feedback for coding agents</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="site-header shell">
+    <a class="wordmark" href="#top" aria-label="Annote home">
+      <span class="mark" aria-hidden="true"></span>
+      annote
+    </a>
+    <nav class="nav" aria-label="Primary navigation">
+      <a href="#install">Install</a>
+      <a href="#bookmarklet">Bookmarklet</a>
+      <a href="#mcp">MCP</a>
+      <a href="https://github.com/PelumiAlesh/annote" target="_blank" rel="noreferrer">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero shell">
+      <div class="eyebrow">Visual feedback for coding agents</div>
+      <h1>Point at the UI.<br />Tell your agent what to fix.</h1>
+      <p class="hero-copy">
+        Annote attaches your feedback to the actual interface — with DOM, React, CSS and motion context — then makes it available to your coding agent over MCP.
+      </p>
+      <div class="hero-actions">
+        <button class="button primary" type="button" data-run-annote>Try Annote on this page</button>
+        <a class="button secondary" href="#install">Install in a project</a>
+      </div>
+      <p class="microcopy">Runs locally. Your browser stays the source of truth.</p>
+    </section>
+
+    <section class="quick shell" aria-label="Quick install">
+      <div class="quick-label">Quick install</div>
+      <div class="command-row">
+        <code>npm install --save-dev annote</code>
+        <button class="copy-button" type="button" data-copy="npm install --save-dev annote">Copy</button>
+      </div>
+    </section>
+
+    <section class="section shell" id="install">
+      <div class="section-index">01</div>
+      <div class="section-copy">
+        <p class="kicker">Recommended</p>
+        <h2>Let your coding agent set it up.</h2>
+        <p>
+          Point Codex, Claude Code, Cursor, or another coding agent at the npm package or GitHub repository. It can install Annote into the project and configure MCP for itself.
+        </p>
+
+        <div class="prompt-box">
+          <div class="prompt-head">
+            <span>Give this to your agent</span>
+            <button class="copy-button" type="button" data-copy-target="#agent-prompt">Copy prompt</button>
+          </div>
+          <pre id="agent-prompt">Set up Annote for this project using https://github.com/PelumiAlesh/annote.
+
+Use the recommended development-only project integration, configure Annote MCP for yourself, preserve my existing MCP configuration, and verify the setup.
+
+When you are done, explain how I should use Annote, tell me anything I need to restart, and remind me to open Annote → Settings → MCP and authorize this site once.</pre>
+        </div>
+
+        <details>
+          <summary>Manual project setup</summary>
+          <div class="details-body">
+            <div class="command-row compact">
+              <code>npm install --save-dev annote</code>
+              <button class="copy-button" type="button" data-copy="npm install --save-dev annote">Copy</button>
+            </div>
+            <p>Load the browser bundle from a browser-only development entry point:</p>
+            <div class="command-row compact">
+              <code>import "annote/dist/annote.iife.js";</code>
+              <button class="copy-button" type="button" data-copy='import "annote/dist/annote.iife.js";'>Copy</button>
+            </div>
+            <p>Then configure the MCP companion:</p>
+            <div class="command-row compact">
+              <code>npx annote init</code>
+              <button class="copy-button" type="button" data-copy="npx annote init">Copy</button>
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section class="section shell" id="bookmarklet">
+      <div class="section-index">02</div>
+      <div class="section-copy">
+        <p class="kicker">No project change</p>
+        <h2>Or use the bookmarklet.</h2>
+        <p>
+          Want Annote on a page without touching its code? Drag the button below into your browser bookmarks bar, then click it on any page where you want to annotate.
+        </p>
+
+        <div class="bookmarklet-wrap">
+          <a class="bookmarklet" data-bookmarklet href="#">
+            <img class="bookmarklet-logo" src="./favicon.svg" alt="" aria-hidden="true" />
+            <span>Annote</span>
+          </a>
+          <span class="drag-note">← drag to your bookmarks bar</span>
+        </div>
+
+        <p class="note">
+          The bookmarklet loads the published Annote browser bundle from npm through jsDelivr. Some sites with strict Content Security Policy settings may block injected scripts.
+        </p>
+      </div>
+    </section>
+
+    <section class="section shell" id="mcp">
+      <div class="section-index">03</div>
+      <div class="section-copy">
+        <p class="kicker">One-time step</p>
+        <h2>Authorize the site once.</h2>
+        <p>
+          Annote does not expose every page to your coding agent automatically. The first time you use MCP on a site, open <strong>Annote → Settings → MCP</strong> and authorize that origin.
+        </p>
+        <div class="authorization-line" aria-label="Authorization flow">
+          <span>Your app</span>
+          <span class="arrow">→</span>
+          <span>Annote</span>
+          <span class="arrow">→</span>
+          <span>Settings</span>
+          <span class="arrow">→</span>
+          <span class="authorize-chip">Authorize</span>
+        </div>
+        <p class="note">
+          After that, leave feedback in the UI and tell your agent: <strong>“Check my Annote feedback.”</strong>
+        </p>
+      </div>
+    </section>
+
+    <section class="playground shell" id="try">
+      <div class="playground-head">
+        <div>
+          <p class="kicker">Live playground</p>
+          <h2>Try pointing at something.</h2>
+        </div>
+        <button class="button primary" type="button" data-run-annote>Run Annote</button>
+      </div>
+
+  <div class="demo-grid">
+  <article class="demo-card" data-demo-card>
+    <span class="demo-label">Card</span>
+    <h3>A deliberately simple target.</h3>
+    <p>
+      Run Annote, select this card, and leave a note about its spacing,
+      border or typography.
+    </p>
+  </article>
+
+  <article class="demo-card motion-card" data-demo-motion>
+    <span class="demo-label">Motion</span>
+    <h3>Inspect a moving element.</h3>
+    <p>
+      Select the moving dot, open Styles, then scroll down to the Motion
+      section to edit its timing and easing.
+    </p>
+    <div class="motion-track" aria-hidden="true">
+      <span class="motion-dot"></span>
+    </div>
+  </article>
+
+  <article class="demo-card multi-select-card" data-demo-multiselect>
+    <span class="demo-label">Multi-select</span>
+    <h3>Try selecting more than one thing.</h3>
+    <p>
+      Hold <span class="kbd">Shift</span> and select two or more of the targets
+      below and edit them together.
+    </p>
+
+    <div class="multi-select-targets">
+      <div class="multi-target">Target one</div>
+      <div class="multi-target">Target two</div>
+      <div class="multi-target">Target three</div>
+    </div>
+  </article>
+</div>
+    </section>
+
+    <section class="closing shell">
+      <p class="kicker">The workflow</p>
+      <h2>Point. Annotate. Ask your agent to handle it.</h2>
+      <p>No screenshots to explain. No “the button on the left.” No copy-paste required when MCP is connected.</p>
+    </section>
+  </main>
+
+  <footer class="footer shell">
+    <div class="wordmark small"><span class="mark" aria-hidden="true"></span>annote</div>
+    <div class="footer-links">
+      <a href="https://github.com/PelumiAlesh/annote" target="_blank" rel="noreferrer">GitHub</a>
+      <a href="https://www.npmjs.com/package/annote" target="_blank" rel="noreferrer">npm</a>
+    </div>
+  </footer>
+
+  <div class="toast" role="status" aria-live="polite" data-toast></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
