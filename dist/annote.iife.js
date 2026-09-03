@@ -38874,7 +38874,7 @@
         margin-top: 8px;
         background: rgba(255,255,255,.03);
         border: 1px solid rgba(255,255,255,.06);
-        border-radius: 6px;
+        border-radius: 0 0 6px 6px;
         padding: 6px 0;
         overflow: hidden;
       }
@@ -38974,8 +38974,7 @@
         gap: 4px;
       }
       .structure-list.collapsed {
-        grid-template-rows: 0fr;
-        opacity: 0;
+        display: none;
       }
       .structure-list-inner {
         overflow: hidden;
