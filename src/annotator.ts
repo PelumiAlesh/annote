@@ -8,6 +8,7 @@ import {
   hasWebrefMetadata,
   isColorProperty,
   isConcreteColorValue,
+  isCustomSegmentValue,
   isTokenValueValidForProperty,
   isValidCssValue,
   mergeBoxValuePart,
@@ -22,6 +23,14 @@ import { escapeHtml } from "./html-escape";
 import { sanitizeStoredAnnotations } from "./annotation-storage";
 import { CONFIRM_INITIAL_FOCUS, confirmDialogContent, type ConfirmKind } from "./confirm-dialog";
 import { isMacPlatform, matchGlobalShortcut, shortcutLabel } from "./shortcuts";
+import {
+  mcpNeedsApprovalStatus,
+  renderSettingsContent,
+  renderSettingsPageContent,
+  type McpConnectionStatus,
+  type SettingsView,
+  type SettingsViewData,
+} from "./settings-view";
 import { formatUiLabel } from "./ui-label";
 import {
   animationEditSignature,
@@ -64,7 +73,6 @@ import {
   ANNOTE_LOCAL_SETUP_COMMAND,
   createAnnoteMcpClient,
   type AnnoteMcpClient,
-  type AnnoteMcpState,
 } from "./annote-mcp-client";
 import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
 
@@ -277,15 +285,8 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     copy: shortcutLabel("copy", IS_MAC),
     clear: shortcutLabel("delete", IS_MAC),
     "delete-current": shortcutLabel("delete-current", IS_MAC),
+    destroy: shortcutLabel("destroy", IS_MAC),
   };
-
-  function isPanelControlFocused(): boolean {
-    const active = (state.shadow?.activeElement || document.activeElement) as HTMLElement | null;
-    if (!active || !(active instanceof HTMLElement)) return false;
-    if (!state.rootHost?.contains(active) && active !== document.activeElement) return false;
-    if (!isAnnotatorNode(active)) return false;
-    return active instanceof HTMLButtonElement || active.getAttribute?.("role") === "button" || active.hasAttribute?.("data-action");
-  }
 
   function isTypingInInput(target: EventTarget | null): boolean {
     const element = target instanceof HTMLElement ? target : null;
@@ -310,9 +311,6 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     if (isTypingInInput(event.target)) return false;
     const action = matchGlobalShortcut(event);
     if (!action) return false;
-    // Letter chords stay out of the way while operating panel controls;
-    // the destructive chord is deliberate enough to allow anywhere untyped.
-    if ((action === "toggle-pick" || action === "copy") && isPanelControlFocused()) return false;
     if (action === "toggle-pick") {
       event.preventDefault();
       togglePick();
@@ -380,8 +378,6 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
   };
 
   type ColorisWindow = Window & { Coloris?: ColorisApi };
-  type SettingsView = "root" | "mcp" | "help";
-  type McpConnectionStatus = AnnoteMcpState;
   type SelectionPausedAnimation = {
     animation: Animation;
     originalPlayState: AnimationPlayState;
@@ -451,6 +447,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     suppressNextToolbarClick: boolean;
     interactionShield: HTMLElement | null;
     structureOpen: boolean;
+    structureAnimating: boolean;
     structureChildrenExpanded: boolean;
     structureSiblingsExpanded: boolean;
     styleScrollTop: number;
@@ -471,6 +468,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     confirmFocus: "cancel" | "delete";
     confirmInvoker: HTMLElement | null;
     confirmTimer: number | null;
+    confirmResumePick: boolean;
   } = {
     mounted: false,
     active: false,
@@ -525,6 +523,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     suppressNextToolbarClick: false,
     interactionShield: null,
     structureOpen: false,
+    structureAnimating: false,
     structureChildrenExpanded: false,
     structureSiblingsExpanded: false,
     styleScrollTop: 0,
@@ -545,6 +544,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     confirmFocus: CONFIRM_INITIAL_FOCUS,
     confirmInvoker: null,
     confirmTimer: null,
+    confirmResumePick: false,
   };
 
   const reactAdapter = createReactAdapter();
@@ -2861,6 +2861,16 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         cursor: default;
         opacity: .32;
       }
+      .icon-btn[aria-disabled="true"] {
+        cursor: default;
+        opacity: .38;
+      }
+      .icon-btn[aria-disabled="true"]:hover {
+        transform: none;
+      }
+      .icon-btn.danger[aria-disabled="true"]:hover {
+        color: rgba(255,255,255,.86);
+      }
       .icon-btn:disabled:hover {
         transform: none;
         background: transparent;
@@ -4812,7 +4822,16 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
       .settings-help-tip::after {
         content: "";
         position: absolute;
-        inset: -12px;
+        inset: -6px;
+      }
+      .settings-switch {
+        border: 0;
+        background: transparent;
+        padding: 6px 8px;
+        margin: -6px -8px;
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
       }
       .settings-help-tip:focus-visible {
         outline: none;
@@ -4824,6 +4843,12 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         gap: 7px;
         color: rgba(255,255,255,.48);
         white-space: nowrap;
+      }
+      .settings-version {
+        padding: 10px 12px 12px;
+        color: rgba(255,255,255,.38);
+        font-size: 10px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       }
       .settings-approval-dot {
         width: 7px;
@@ -4962,16 +4987,19 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         height: 100%;
       }
       .settings-page.enter-forward {
-        animation: fm-settings-enter-forward 180ms cubic-bezier(.2,.8,.2,1) both;
+        animation: fm-settings-enter-forward 200ms cubic-bezier(.25,.8,.25,1) both;
       }
       .settings-page.exit-forward {
-        animation: fm-settings-exit-forward 180ms cubic-bezier(.2,.8,.2,1) both;
+        animation: fm-settings-exit-forward 200ms cubic-bezier(.25,.8,.25,1) both;
       }
       .settings-page.enter-back {
-        animation: fm-settings-enter-back 180ms cubic-bezier(.2,.8,.2,1) both;
+        animation: fm-settings-enter-back 200ms cubic-bezier(.25,.8,.25,1) both;
       }
       .settings-page.exit-back {
-        animation: fm-settings-exit-back 180ms cubic-bezier(.2,.8,.2,1) both;
+        animation: fm-settings-exit-back 200ms cubic-bezier(.25,.8,.25,1) both;
+      }
+      .settings-viewport.animating {
+        transition: height 200ms cubic-bezier(.25,.8,.25,1);
       }
       .settings-command {
         display: grid;
@@ -5204,20 +5232,20 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         to { opacity: 1; transform: translateY(0) scale(1); }
       }
       @keyframes fm-settings-enter-forward {
-        from { opacity: 0; transform: translateX(18px); }
+        from { opacity: 0; transform: translateX(8px); }
         to { opacity: 1; transform: translateX(0); }
       }
       @keyframes fm-settings-exit-forward {
         from { opacity: 1; transform: translateX(0); }
-        to { opacity: 0; transform: translateX(-18px); }
+        to { opacity: 0; transform: translateX(-8px); }
       }
       @keyframes fm-settings-enter-back {
-        from { opacity: 0; transform: translateX(-18px); }
+        from { opacity: 0; transform: translateX(-8px); }
         to { opacity: 1; transform: translateX(0); }
       }
       @keyframes fm-settings-exit-back {
         from { opacity: 1; transform: translateX(0); }
-        to { opacity: 0; transform: translateX(18px); }
+        to { opacity: 0; transform: translateX(8px); }
       }
       @keyframes fm-compose {
         from { opacity: 0; transform: translateY(10px) scale(.96); }
@@ -5397,7 +5425,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         display: grid;
         grid-template-rows: 1fr;
         opacity: 1;
-        transition: grid-template-rows 220ms cubic-bezier(.2,.8,.2,1), opacity 180ms ease;
+        transition: grid-template-rows 220ms cubic-bezier(.2,.8,.2,1), opacity 180ms ease, margin-top 220ms cubic-bezier(.2,.8,.2,1);
         margin-top: 6px;
         padding: 0 9px;
       }
@@ -6013,7 +6041,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     const label = bound ? `Unlink ${propertyLabel(row.property)} token` : `Show ${propertyLabel(row.property)} tokens`;
     const tip = bound ? "Unlink token" : "Add token";
     return `<span class="token-menu-anchor">
-      <button class="token-button ${bound ? "bound" : ""}" type="button" data-action="${action}" data-property="${escapeHtml(row.property)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(label)}" aria-expanded="${state.openTokenMenu === key}">${icon("token")}</button>
+      <button class="token-button ${bound ? "bound" : ""}" type="button" data-action="${action}" data-property="${escapeHtml(row.property)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(label)}" data-tooltip="${escapeHtml(tip)}" aria-expanded="${state.openTokenMenu === key}">${icon("token")}</button>
       ${renderTokenMenu(row)}
     </span>`;
   }
@@ -6056,8 +6084,8 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     return `<span class="number-field">
       ${renderCssInput(row, value, valid, `number-input ${extraClass}`)}
       <span class="stepper-stack" aria-hidden="false">
-        <button type="button" class="stepper-btn" data-action="step-css" data-property="${escapeHtml(row.property)}" data-direction="1" aria-label="Increase ${escapeHtml(row.property)}">${icon("chevron-up")}</button>
-        <button type="button" class="stepper-btn" data-action="step-css" data-property="${escapeHtml(row.property)}" data-direction="-1" aria-label="Decrease ${escapeHtml(row.property)}">${icon("chevron-down")}</button>
+        <button type="button" class="stepper-btn" data-action="step-css" data-property="${escapeHtml(row.property)}" data-direction="1" aria-label="Increase ${escapeHtml(row.property)}" data-tooltip="Increase ${escapeHtml(row.property)}">${icon("chevron-up")}</button>
+        <button type="button" class="stepper-btn" data-action="step-css" data-property="${escapeHtml(row.property)}" data-direction="-1" aria-label="Decrease ${escapeHtml(row.property)}" data-tooltip="Decrease ${escapeHtml(row.property)}">${icon("chevron-down")}</button>
       </span>
     </span>`;
   }
@@ -6120,7 +6148,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     ];
     const linkTip = linked ? `Unlink ${propertyLabel(row.property)} sides` : `Link ${propertyLabel(row.property)} sides`;
     return `<span class="box-control ${linked ? "linked" : "unlinked"}">
-      <button class="link-toggle ${linked ? "linked" : "unlinked"}" type="button" data-action="toggle-box-link" data-property="${escapeHtml(row.property)}" data-current-box="${escapeHtml(value)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(linkTip)}">${icon(linked ? "link" : "unlink")}</button>
+      <button class="link-toggle ${linked ? "linked" : "unlinked"}" type="button" data-action="toggle-box-link" data-property="${escapeHtml(row.property)}" data-current-box="${escapeHtml(value)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(linkTip)}" data-tooltip="${escapeHtml(linkTip)}">${icon(linked ? "link" : "unlink")}</button>
       <span class="padding-control">
         ${sides
           .map(
@@ -6140,13 +6168,13 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     const className = `css-row control-${config.control} ${propertyClass} ${valid ? "" : "invalid"} ${changed ? "changed" : ""}`;
     if (config.control === "segmented" && config.options?.length) {
       const mixed = value === "Mixed";
-      const custom = !config.options.includes(value.trim());
+      const custom = isCustomSegmentValue(config.options, value);
       const control = `<span class="segmented-control" role="radiogroup" aria-label="${escapeHtml(row.property)} value">
         ${config.options
           .map(
             (option) => {
               const label = optionLabel(option);
-              return `<button class="segment ${row.property === "text-align" ? "icon-segment" : ""} ${option === value.trim() ? "active" : ""}" type="button" role="radio" aria-label="${escapeHtml(label)}" aria-checked="${option === value.trim()}" data-action="set-segment" data-property="${escapeHtml(row.property)}" data-value="${escapeHtml(option)}" ${mixed ? "disabled" : ""}>${segmentContent(row.property, option)}</button>`;
+              return `<button class="segment ${row.property === "text-align" ? "icon-segment" : ""} ${option === value.trim() ? "active" : ""}" type="button" role="radio" aria-label="${escapeHtml(label)}"${row.property === "text-align" ? ` data-tooltip="${escapeHtml(label)}"` : ""} aria-checked="${option === value.trim()}" data-action="set-segment" data-property="${escapeHtml(row.property)}" data-value="${escapeHtml(option)}" data-original-value="${escapeHtml(row.value)}" ${mixed ? "disabled" : ""}>${segmentContent(row.property, option)}</button>`;
             },
           )
           .join("")}
@@ -6185,7 +6213,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         </div>`;
       }
       const compoundControl = `<span class="compound-control ${linked ? "linked" : "unlinked"}">
-        <button class="link-toggle ${linked ? "linked" : "unlinked"}" type="button" data-action="toggle-box-link" data-property="${escapeHtml(row.property)}" data-current-box="${escapeHtml(value)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(linked ? `Unlink ${propertyLabel(row.property)} sides` : `Link ${propertyLabel(row.property)} sides`)}">${icon(linked ? "link" : "unlink")}</button>
+        <button class="link-toggle ${linked ? "linked" : "unlinked"}" type="button" data-action="toggle-box-link" data-property="${escapeHtml(row.property)}" data-current-box="${escapeHtml(value)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(linked ? `Unlink ${propertyLabel(row.property)} sides` : `Link ${propertyLabel(row.property)} sides`)}" data-tooltip="${escapeHtml(linked ? "Unlink sides" : "Link sides")}">${icon(linked ? "link" : "unlink")}</button>
         ${linked && stepCssNumericValue(row.property, value, 1) ? renderNumberField(row, value, valid) : renderCssInput(row, value, valid)}
       </span>`;
       return `<div class="${className}">
@@ -6706,178 +6734,21 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     </form>`;
   }
 
-  function renderSettingsToggle(key: keyof FeedbackMarkSettings, label: string, help: string): string {
-    const checked = state.settings[key];
-    return `<button class="settings-row" type="button" role="switch" aria-checked="${checked ? "true" : "false"}" data-action="toggle-setting" data-setting="${key}">
-      <span class="settings-row-label">
-        <strong>${escapeHtml(label)}</strong>
-        <button type="button" class="settings-help-tip" aria-label="${escapeHtml(help)}" data-tooltip="${escapeHtml(help)}">?</button>
-      </span>
-      <span class="settings-toggle" aria-hidden="true"></span>
-    </button>`;
-  }
-
-  function mcpStatusLabel(status: McpConnectionStatus): string {
-    if (status === "connected") return "Connected";
-    if (status === "permission-required") return "Permission needed";
-    if (status === "protocol-incompatible") return "Update required";
-    if (status === "error") return "Error";
-    return "Not connected";
-  }
-
-  function mcpNeedsApproval(): boolean {
-    return state.mcpStatus === "permission-required";
-  }
-
-  function renderSettingsRoot(): string {
-    return `
-      <div class="panel-head">
-        <div class="panel-title">
-          <h2>Settings</h2>
-        </div>
-      </div>
-      <div class="settings-list">
-        <section class="settings-section" aria-label="Behavior">
-          ${renderSettingsToggle("pauseAnimationOnSelect", "Pause animation on select", "Pause active motion when you select it.")}
-          ${renderSettingsToggle("clearAfterSend", "Clear after send", "Remove submitted annotations after sending.")}
-          ${renderSettingsToggle("preventPageActions", "Prevent page interactions while annotating", "Prevent clicks and hover interactions while selecting elements.")}
-        </section>
-        <section class="settings-section" aria-label="Context">
-          ${renderSettingsToggle("reactContext", "React context", "Include component and source context when available.")}
-        </section>
-        <section class="settings-section" aria-label="Connections">
-          <button class="settings-row" type="button" data-action="settings-view" data-settings-view="mcp">
-            <span class="settings-row-label">
-              <strong>MCP</strong>
-              <button type="button" class="settings-help-tip" aria-label="Connect MCP to your coding agent." data-tooltip="Connect MCP to your coding agent.">?</button>
-            </span>
-            <span class="settings-row-meta">${mcpNeedsApproval() ? `<span class="settings-approval-dot" aria-hidden="true"></span>` : ""}<span>${escapeHtml(mcpStatusLabel(state.mcpStatus))}</span><span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
-          </button>
-        </section>
-        <section class="settings-section" aria-label="Help">
-          <button class="settings-row" type="button" data-action="settings-view" data-settings-view="help">
-            <span class="settings-row-label"><strong>How to use</strong></span>
-            <span class="settings-row-meta"><span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
-          </button>
-        </section>
-      </div>
-      ${noticeHtml()}
-    `;
-  }
-
-  function renderSettingsHeader(title: string): string {
-    return `<div class="panel-head detail">
-      <button class="settings-back" type="button" data-action="settings-view" data-settings-view="root" aria-label="Back">&lsaquo;</button>
-      <div class="panel-title"><h2>${escapeHtml(title)}</h2></div>
-    </div>`;
-  }
-
-  function renderMcpSettings(): string {
-    const site = location.host || location.origin;
-    if (state.mcpStatus === "permission-required") {
-      return `
-        ${renderSettingsHeader("MCP")}
-        <div class="settings-detail">
-          <h3 class="settings-state-title approval"><span class="settings-live-dot" aria-hidden="true"></span>Permission needed</h3>
-          <p class="settings-copy">Allow Annote on</p>
-          <div class="settings-command"><code>${escapeHtml(site)}</code></div>
-          <button class="text-btn compact primary" type="button" data-action="settings-mcp-allow">Allow on this site</button>
-          <p class="settings-copy">You only need to do this once.</p>
-        </div>
-        ${noticeHtml()}
-      `;
-    }
-    if (state.mcpStatus === "connected") {
-      return `
-        ${renderSettingsHeader("MCP")}
-        <div class="settings-detail">
-          <h3 class="settings-state-title"><span class="settings-live-dot" aria-hidden="true"></span>Connected</h3>
-          <p class="settings-copy">Annote is ready to share feedback with your coding agent.</p>
-          <div class="settings-kv">
-            <div class="settings-kv-row"><span>Site</span><strong>${escapeHtml(site)}</strong></div>
-          </div>
-          <button class="settings-link-button" type="button" data-action="settings-mcp-revoke">Revoke this site</button>
-        </div>
-        ${noticeHtml()}
-      `;
-    }
-    if (state.mcpStatus === "protocol-incompatible") {
-      return `
-        ${renderSettingsHeader("MCP")}
-        <div class="settings-detail">
-          <h3 class="settings-state-title">Update required</h3>
-          <p class="settings-copy">Your Annote browser and MCP companion use different versions.</p>
-          <div class="settings-command"><code>npm run mcp:build</code><button type="button" data-action="settings-copy-command">${state.mcpSetupCopyState === "copied" ? "Copied" : "Copy"}</button></div>
-        </div>
-        ${noticeHtml()}
-      `;
-    }
-    if (state.mcpStatus === "error") {
-      return `
-        ${renderSettingsHeader("MCP")}
-        <div class="settings-detail">
-          <h3 class="settings-state-title">Something's not connecting.</h3>
-          <button class="text-btn compact" type="button" data-action="settings-copy-doctor">Run diagnostics</button>
-        </div>
-        ${noticeHtml()}
-      `;
-    }
-    return `
-      ${renderSettingsHeader("MCP")}
-      <div class="settings-detail">
-        <p class="settings-copy">Connect MCP to your coding agent.</p>
-        <h3 class="settings-state-title">Not connected</h3>
-        <p class="settings-copy">Run once</p>
-        <div class="settings-command"><code>${escapeHtml(ANNOTE_LOCAL_SETUP_COMMAND)}</code><button type="button" data-action="settings-copy-command">${state.mcpSetupCopyState === "copied" ? "Copied" : "Copy"}</button></div>
-        <p class="settings-copy">Then restart your coding agent.</p>
-      </div>
-      ${noticeHtml()}
-    `;
-  }
-
-  function renderHelpSettings(): string {
-    const rows: Array<[string, string]> = [
-      ["Select element", "Click"],
-      ["Multi-select / add-remove", "Shift + click"],
-      ["Move toolbar", "Hold + drag"],
-      ["Pick element", SHORTCUTS["toggle-pick"]],
-      ["Copy unresolved", SHORTCUTS.copy],
-      ["Delete", `${SHORTCUTS.clear} + confirm`],
-      ["Stop selecting", "Esc"],
-      ["Submit", "Enter"],
-      ["New line", "Shift + Enter"],
-      ["Cancel", "Esc"],
-      ["Scrub animation", "Drag timeline"],
-      ["Replay animation", "Replay button"],
-      ["Coding agent", "Settings -> MCP"],
-    ];
-    if (state.settings.pauseAnimationOnSelect) rows.splice(8, 0, ["Inspect animation", "Select animated element"]);
-    return `
-      ${renderSettingsHeader("How to use")}
-      <div class="settings-detail">
-        <div class="settings-kv">
-          ${rows.map(([label, value]) => `<div class="settings-kv-row"><span>${escapeHtml(label)}</span><span class="settings-kbd">${escapeHtml(value)}</span></div>`).join("")}
-        </div>
-      </div>
-    `;
-  }
-
-  function renderSettingsPageContent(): string {
-    if (state.settingsView === "mcp") return renderMcpSettings();
-    if (state.settingsView === "help") return renderHelpSettings();
-    return renderSettingsRoot();
-  }
-
-  function renderSettingsContent(): string {
-    return `<div class="settings-viewport" data-settings-viewport>
-      <div class="settings-page" data-settings-page data-settings-view="${state.settingsView}">
-        ${renderSettingsPageContent()}
-      </div>
-    </div>`;
-  }
-
   function settingsViewDepth(view: SettingsView): number {
     return view === "root" ? 0 : 1;
+  }
+
+  function settingsViewData(): SettingsViewData {
+    return {
+      settings: state.settings,
+      mcpStatus: state.mcpStatus,
+      settingsView: state.settingsView,
+      mcpSetupCopyState: state.mcpSetupCopyState,
+      setupCommand: ANNOTE_LOCAL_SETUP_COMMAND,
+      site: location.host || location.origin,
+      noticeHtml: noticeHtml(),
+      shortcuts: { pick: SHORTCUTS["toggle-pick"], copy: SHORTCUTS.copy, del: SHORTCUTS.clear },
+    };
   }
 
   function transitionSettingsView(view: SettingsView): void {
@@ -6900,23 +6771,41 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     nextPage.className = `settings-page animating enter-${direction}`;
     nextPage.dataset.settingsPage = "";
     nextPage.dataset.settingsView = view;
-    nextPage.innerHTML = renderSettingsPageContent();
+    nextPage.innerHTML = renderSettingsPageContent(settingsViewData());
     currentPage.classList.add("animating", `exit-${direction}`);
-    viewport.style.height = `${Math.ceil(viewport.getBoundingClientRect().height)}px`;
+    // Animate height together with the body: lock current, then ease to next.
+    // The entering page is height:100% for the overlay, so its scrollHeight
+    // reads the OLD viewport — measure a positioned probe for the true height.
+    const currentHeight = Math.ceil(viewport.getBoundingClientRect().height);
     viewport.appendChild(nextPage);
+    const probe = nextPage.cloneNode(true) as HTMLElement;
+    probe.removeAttribute("data-settings-page");
+    probe.classList.remove("animating", `enter-${direction}`);
+    probe.style.position = "absolute";
+    probe.style.visibility = "hidden";
+    probe.style.height = "auto";
+    probe.style.width = "100%";
+    viewport.appendChild(probe);
+    const nextHeight = probe.scrollHeight;
+    probe.remove();
+    viewport.style.height = `${currentHeight}px`;
+    void viewport.offsetHeight;
+    viewport.classList.add("animating");
+    viewport.style.height = `${nextHeight}px`;
     bindShadowEvents();
     window.setTimeout(() => {
       if (!state.shadow?.contains(nextPage)) return;
       currentPage.remove();
       nextPage.classList.remove("animating", `enter-${direction}`);
+      viewport.classList.remove("animating");
       viewport.style.height = "";
       settingsTransitioning = false;
-    }, 190);
+    }, 200);
   }
 
   function renderPanelContent(): string {
     if (state.panelMode === "settings") {
-      return renderSettingsContent();
+      return renderSettingsContent(settingsViewData());
     }
     return `
       <div class="panel-head">
@@ -7709,9 +7598,9 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
                 <div class="toolbar-controls">
                   ${iconButton("toggle-pick", state.active ? "Stop picking" : "Pick element", "target", "pick-toggle")}
                   ${iconButton("toggle-panel", `Review ${state.annotations.length}`, "note", state.visible && state.panelMode === "review" ? "active-control" : "")}
-                  ${iconButton("copy", "Copy unresolved", copyIcon, copyClass)}
-                  ${iconButton("clear", "Clear annotations", "trash", "danger", state.annotations.length ? "" : "disabled")}
-                  ${iconButton("settings", "Settings", "settings", `${state.visible && state.panelMode === "settings" ? "active-control" : ""} ${mcpNeedsApproval() ? "needs-attention" : ""}`.trim())}
+                  ${iconButton("copy", "Copy unresolved", copyIcon, copyClass, unresolvedAnnotations().length ? "" : 'aria-disabled="true"')}
+                  ${iconButton("clear", "Clear annotations", "trash", "danger", state.annotations.length ? "" : 'aria-disabled="true"')}
+                  ${iconButton("settings", "Settings", "settings", `${state.visible && state.panelMode === "settings" ? "active-control" : ""} ${mcpNeedsApprovalStatus(state.mcpStatus) ? "needs-attention" : ""}`.trim())}
                   <span class="toolbar-divider" aria-hidden="true"></span>
                   ${iconButton("collapse", "Collapse toolbar", "minus")}
                   ${iconButton("destroy", "Close annotator", "cross", "borderless")}
@@ -7880,6 +7769,15 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
   function bindShadowEvents(): void {
     const root = state.shadow;
     if (!root) return;
+    // Full property names for truncated labels (e.g. Grid Template Columns
+    // vs Grid Template Rows) — only when actually ellipsis-truncated.
+    if (state.cssOpen) {
+      root.querySelectorAll<HTMLElement>(".css-name").forEach((label) => {
+        const full = label.textContent?.trim() || "";
+        if (full && label.scrollWidth > label.clientWidth + 1) label.setAttribute("data-tooltip", full);
+        else label.removeAttribute("data-tooltip");
+      });
+    }
     bindToolbarTooltipGroup(root);
     if (!state.shadowClickBound) {
       root.addEventListener("click", onShadowRootClick);
@@ -7902,6 +7800,9 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
           state.suppressNextToolbarClick = false;
           return;
         }
+        // aria-disabled keeps tooltips working (unlike native disabled) —
+        // clicks simply do nothing.
+        if (control.getAttribute("aria-disabled") === "true") return;
         const action = control.dataset.action;
         const id = control.dataset.id;
         if (action === "open-toolbar") {
@@ -7945,7 +7846,11 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
           const key = control.dataset.setting as keyof FeedbackMarkSettings;
           if (key in state.settings) {
             updateSetting(key, !state.settings[key], false);
-            control.setAttribute("aria-checked", state.settings[key] ? "true" : "false");
+            const checked = state.settings[key] ? "true" : "false";
+            control.setAttribute("aria-checked", checked);
+            const row = control.closest?.(".settings-row");
+            row?.setAttribute("aria-checked", checked);
+            row?.querySelector('[role="switch"]')?.setAttribute("aria-checked", checked);
           }
         }
         if (action === "settings-view" && control.dataset.settingsView) {
@@ -8032,6 +7937,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
           render();
         }
         if (action === "set-selection-scope" && control.dataset.scope && state.selectedElements.length > 1 && state.selectedElement) {
+          if (blockDirtyComposerSwitch()) return;
           const previousComment = state.draft?.comment || "";
           const previousIntent = state.draft?.intent || "fix";
           state.selectionScope = control.dataset.scope === "parent" ? "parent" : "individual";
@@ -8048,8 +7954,42 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
           render();
         }
         if (action === "toggle-structure") {
-          state.structureOpen = !state.structureOpen;
-          render();
+          if (state.structureAnimating) return;
+          if (!state.structureOpen) {
+            state.structureOpen = true;
+            render();
+            if (!prefersReducedMotion()) {
+              // WAAPI (not a class dance): deterministic even when no frame
+              // paints between state flips.
+              state.shadow?.querySelector<HTMLElement>(".structure-body")?.animate(
+                [
+                  { gridTemplateRows: "0fr", opacity: 0, marginTop: "0" },
+                  { gridTemplateRows: "1fr", opacity: 1, marginTop: "6px" },
+                ],
+                { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" },
+              );
+            }
+            return;
+          }
+          const body = state.shadow?.querySelector<HTMLElement>(".structure-body");
+          if (body && !prefersReducedMotion()) {
+            state.structureAnimating = true;
+            body.animate(
+              [
+                { gridTemplateRows: "1fr", opacity: 1, marginTop: "6px" },
+                { gridTemplateRows: "0fr", opacity: 0, marginTop: "0" },
+              ],
+              { duration: 180, easing: "cubic-bezier(.2,.8,.2,1)" },
+            );
+            window.setTimeout(() => {
+              state.structureAnimating = false;
+              state.structureOpen = false;
+              render();
+            }, 190);
+          } else {
+            state.structureOpen = false;
+            render();
+          }
         }
         if (action === "toggle-structure-children") {
           state.structureChildrenExpanded = !state.structureChildrenExpanded;
@@ -8060,6 +8000,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
           render();
         }
         if (control.dataset.structureTarget) {
+          if (blockDirtyComposerSwitch()) return;
           const selector = control.dataset.structureTarget;
           const target = resolveElement(selector);
           if (target && isStructureCandidate(target)) {
@@ -8115,7 +8056,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
           const property = control.dataset.property || "";
           const value = control.dataset.value || "";
           const input = root.querySelector<HTMLInputElement>(`[data-css-property="${cssEscape(property)}"]`);
-          const original = input?.dataset.originalValue || "";
+          const original = control.dataset.originalValue || input?.dataset.originalValue || "";
           updateStyleEdit(property, value, original);
           state.autocomplete = null;
           state.openFontMenu = null;
@@ -8310,6 +8251,9 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     root.querySelector<HTMLElement>("[data-motion-scrubber]")?.addEventListener("pointerup", endMotionScrub);
     root.querySelector<HTMLElement>("[data-motion-scrubber]")?.addEventListener("pointercancel", endMotionScrub);
     root.querySelector<HTMLElement>("[data-motion-scrubber]")?.addEventListener("keydown", scrubberKeyStep);
+    // The confirm scrim must fully arrest the page: no scroll-through.
+    root.querySelector<HTMLElement>("[data-confirm-scrim]")?.addEventListener("wheel", (event) => event.preventDefault(), { passive: false });
+    root.querySelector<HTMLElement>("[data-confirm-scrim]")?.addEventListener("touchmove", (event) => event.preventDefault(), { passive: false });
     root.querySelectorAll<SVGCircleElement>("[data-motion-graph-handle]").forEach((handle) => {
       handle.addEventListener("pointerdown", beginMotionGraphDrag);
     });
@@ -8498,6 +8442,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
       row.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (blockDirtyComposerSwitch()) return;
         const selector = row.dataset.structureTarget;
         const target = selector ? resolveElement(selector) : null;
         if (target && isStructureCandidate(target)) {
@@ -8918,10 +8863,24 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     state.confirm = { kind, targetId, count };
     state.confirmClosing = false;
     state.confirmFocus = CONFIRM_INITIAL_FOCUS;
+    // Suspend picking so the crosshair, hover tracking, and page
+    // interactions can't fight the dialog. Restored on close.
+    state.confirmResumePick = state.active;
+    state.active = false;
+    setAnnotatingCursor(false);
+    state.hoverElement = null;
     render();
     requestAnimationFrame(() => {
-      state.shadow?.querySelector<HTMLButtonElement>("[data-confirm-cancel]")?.focus();
+      state.shadow?.querySelector<HTMLButtonElement>("[data-action='confirm-delete']")?.focus();
     });
+  }
+
+  function restoreConfirmPick(): void {
+    if (!state.confirmResumePick) return;
+    state.confirmResumePick = false;
+    if (!state.shadow) return;
+    state.active = true;
+    setAnnotatingCursor(true);
   }
 
   function closeConfirm(restoreFocus = true): void {
@@ -8934,6 +8893,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
       state.confirmTimer = null;
       if (restoreFocus) state.confirmInvoker?.focus?.();
       state.confirmInvoker = null;
+      restoreConfirmPick();
       render();
     };
     const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -8954,6 +8914,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     state.confirm = null;
     state.confirmClosing = false;
     state.confirmInvoker = null;
+    restoreConfirmPick();
     if (pending.kind === "delete-current" && pending.targetId) {
       const id = pending.targetId;
       animateComposerOut(() => deleteAnnotation(id));
@@ -9112,6 +9073,16 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
   }
 
   function onClick(event: MouseEvent): void {
+    // Outside click dismisses review/settings popovers — never the
+    // destructive confirm (its scrim owns dismissal), never mid-pick.
+    if (!state.active && !state.confirm && state.visible && !state.selectedElement && !state.selectedElements.length) {
+      const target = event.target as HTMLElement | null;
+      if (target && !isAnnotatorNode(target)) {
+        state.visible = false;
+        render();
+        return;
+      }
+    }
     if (!state.active || isControlUiEventTarget(event.target)) return;
     if (!shouldPreventUnderlyingAction()) return;
     event.preventDefault();
@@ -9208,6 +9179,17 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
           });
           return;
         }
+        // Div-based rows (settings navigation) are keyboard-activated here;
+        // native buttons activate natively and must not double-fire.
+        const row = target instanceof HTMLButtonElement || target.closest("button")
+          ? null
+          : target.closest?.("div.settings-row[data-action]");
+        if (row) {
+          event.preventDefault();
+          event.stopPropagation();
+          (row as HTMLElement).click();
+          return;
+        }
       }
     }
 
@@ -9224,7 +9206,9 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         requestCancelComposer();
         return;
       }
-      destroy();
+      // Collapse (never destroy): the launcher stays so the tool is findable.
+      // Explicit close remains on the toolbar × button.
+      collapseToolbar();
     }
   }
 
@@ -9493,6 +9477,8 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     state.confirm = null;
     state.confirmClosing = false;
     state.confirmInvoker = null;
+    state.confirmResumePick = false;
+    state.structureAnimating = false;
     if (state.noticeTimer !== null) {
       window.clearTimeout(state.noticeTimer);
       state.noticeTimer = null;

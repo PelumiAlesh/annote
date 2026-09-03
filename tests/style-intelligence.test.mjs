@@ -16,6 +16,7 @@ import {
   parseCssColorParts,
   serializeEditedStyles,
   stepCssNumericValue,
+  isCustomSegmentValue,
 } from "/tmp/feedback-mark-style-intelligence.mjs";
 
 test("loads Webref CSS property metadata", () => {
@@ -121,4 +122,17 @@ test("merges box side edits back to compact shorthand when possible", () => {
   assert.equal(mergeBoxValuePart("12px", 1, "8px"), "12px 8px 12px 12px");
   assert.equal(mergeBoxValuePart("12px 8px 12px 8px", 2, "12px"), "12px 8px");
   assert.equal(mergeBoxValuePart("4px 4px 4px 4px", 0, "4px"), "4px");
+});
+
+test("segmented controls only show a text field for real custom values", () => {
+  const options = ["left", "center", "right", "justify", "start", "end"];
+  assert.equal(isCustomSegmentValue(options, "left"), false);
+  assert.equal(isCustomSegmentValue(options, "  center  "), false);
+  // Empty / Mixed must never sprout a stray input (undo-to-original case).
+  assert.equal(isCustomSegmentValue(options, ""), false);
+  assert.equal(isCustomSegmentValue(options, "   "), false);
+  assert.equal(isCustomSegmentValue(options, "Mixed"), true);
+  // Genuine custom values still get the input.
+  assert.equal(isCustomSegmentValue(options, "-webkit-left"), true);
+  assert.equal(isCustomSegmentValue(options, "start safe"), true);
 });

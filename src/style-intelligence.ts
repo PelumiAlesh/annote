@@ -237,8 +237,7 @@ export function mergeBoxValuePart(value: string, index: number, nextPart: string
   return parts.join(" ");
 }
 
-export function getPropertyEditorConfig(property: string, value = ""): PropertyEditorConfig {
-  const override = CONTROL_OVERRIDES[property];
+export function getPropertyEditorConfig(property: string, value = ""): PropertyEditorConfig {  const override = CONTROL_OVERRIDES[property];
   if (override) {
     if (override.control === "number" && !simpleNumericParts(value)) return { control: "text" };
     return override;
@@ -249,6 +248,11 @@ export function getPropertyEditorConfig(property: string, value = ""): PropertyE
   if (finite.length >= 2 && finite.length <= 4) return { control: "segmented", options: finite };
   if (NUMERIC_PROPERTY_PATTERN.test(property) && simpleNumericParts(value)) return { control: "number", step: 1 };
   return { control: "text" };
+}
+
+export function isCustomSegmentValue(options: string[], value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed !== "" && !options.includes(trimmed);
 }
 
 export function serializeEditedStyles(

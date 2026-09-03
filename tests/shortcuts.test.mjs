@@ -22,31 +22,38 @@ test("sacred browser chords are never claimed", () => {
   assert.equal(matchGlobalShortcut(key({ key: "p", code: "KeyP", ctrlKey: true })), null);
   // DevTools inspect chord stays free.
   assert.equal(matchGlobalShortcut(key({ key: "c", code: "KeyC", ctrlKey: true, shiftKey: true })), null);
+  // Cmd/Ctrl+Alt chords are not claimed either (Cmd+Opt+C = Chrome DevTools).
+  assert.equal(matchGlobalShortcut(key({ key: "π", code: "KeyP", metaKey: true, altKey: true })), null);
+  assert.equal(matchGlobalShortcut(key({ key: "ç", code: "KeyC", metaKey: true, altKey: true })), null);
+  // Windows AltGr (Ctrl+Alt) must not fire.
+  assert.equal(matchGlobalShortcut(key({ key: "p", code: "KeyP", ctrlKey: true, altKey: true })), null);
 });
 
 test("Alt chords match by physical code (macOS Option chars)", () => {
   // macOS sends "π" for Option+P and "ç" for Option+C — code still matches.
-  assert.equal(matchGlobalShortcut(key({ key: "π", code: "KeyP", metaKey: true, altKey: true })), "toggle-pick");
-  assert.equal(matchGlobalShortcut(key({ key: "ç", code: "KeyC", ctrlKey: true, altKey: true })), "copy");
-  assert.equal(matchGlobalShortcut(key({ key: "p", code: "KeyP", metaKey: true, altKey: true })), "toggle-pick");
-  assert.equal(matchGlobalShortcut(key({ key: "c", code: "KeyC", ctrlKey: true, altKey: true })), "copy");
+  assert.equal(matchGlobalShortcut(key({ key: "π", code: "KeyP", altKey: true })), "toggle-pick");
+  assert.equal(matchGlobalShortcut(key({ key: "ç", code: "KeyC", altKey: true })), "copy");
+  assert.equal(matchGlobalShortcut(key({ key: "p", code: "KeyP", altKey: true })), "toggle-pick");
+  assert.equal(matchGlobalShortcut(key({ key: "c", code: "KeyC", altKey: true })), "copy");
 });
 
-test("delete requires Cmd/Ctrl+Backspace exactly", () => {
-  assert.equal(matchGlobalShortcut(key({ key: "Backspace", metaKey: true })), "delete");
-  assert.equal(matchGlobalShortcut(key({ key: "Backspace", ctrlKey: true })), "delete");
-  assert.equal(matchGlobalShortcut(key({ key: "Backspace", metaKey: true, shiftKey: true })), null);
-  assert.equal(matchGlobalShortcut(key({ key: "Backspace", metaKey: true, altKey: true })), null);
-  assert.equal(matchGlobalShortcut(key({ key: "Delete", metaKey: true })), null);
+test("delete requires Alt+Backspace exactly", () => {
+  assert.equal(matchGlobalShortcut(key({ key: "Backspace", altKey: true })), "delete");
+  assert.equal(matchGlobalShortcut(key({ key: "Backspace", altKey: true, shiftKey: true })), null);
+  assert.equal(matchGlobalShortcut(key({ key: "Backspace", metaKey: true })), null);
+  assert.equal(matchGlobalShortcut(key({ key: "Backspace", ctrlKey: true })), null);
+  assert.equal(matchGlobalShortcut(key({ key: "Delete", altKey: true })), null);
 });
 
 test("labels are platform aware and mnemonic", () => {
-  assert.equal(shortcutLabel("toggle-pick", true), "⌘⌥P");
-  assert.equal(shortcutLabel("toggle-pick", false), "Ctrl+Alt+P");
-  assert.equal(shortcutLabel("copy", true), "⌘⌥C");
-  assert.equal(shortcutLabel("copy", false), "Ctrl+Alt+C");
-  assert.equal(shortcutLabel("delete", true), "⌘⌫");
-  assert.equal(shortcutLabel("delete", false), "Ctrl+Backspace");
+  assert.equal(shortcutLabel("toggle-pick", true), "⌥P");
+  assert.equal(shortcutLabel("toggle-pick", false), "Alt+P");
+  assert.equal(shortcutLabel("copy", true), "⌥C");
+  assert.equal(shortcutLabel("copy", false), "Alt+C");
+  assert.equal(shortcutLabel("delete", true), "⌥⌫");
+  assert.equal(shortcutLabel("delete", false), "Alt+Backspace");
+  assert.equal(shortcutLabel("destroy", true), "Esc");
+  assert.equal(shortcutLabel("destroy", false), "Esc");
   assert.equal(isMacPlatform("MacIntel"), true);
   assert.equal(isMacPlatform("Win32"), false);
 });

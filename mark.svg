@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Annote mark without background — same shape as .mark and favicon.svg -->
+  <g transform="rotate(14 16 16)">
+    <path d="M 9 7 L 18 7 A 7 7 0 0 1 25 14 L 25 18 A 7 7 0 0 1 18 25 L 14 25 A 7 7 0 0 1 7 18 L 7 9 A 2 2 0 0 1 9 7 Z" fill="#ff6b1a"/>
+  </g>
+</svg>

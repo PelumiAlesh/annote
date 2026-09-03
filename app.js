@@ -40,7 +40,7 @@ if (bookmarklet) {
     ghost.style.lineHeight = "1";
     ghost.setAttribute("aria-hidden", "true");
     const logo = document.createElement("img");
-    logo.src = "./favicon.svg";
+    logo.src = "./mark.svg";
     logo.alt = "";
     logo.width = 26;
     logo.height = 26;
@@ -143,7 +143,7 @@ function runAnnote() {
   script.onload = () => {
     const annote = window.__ANNOTE__ || window.__UI_ANNOTATOR__;
     annote?.mount?.();
-    toast("Annote is running — point at the page");
+    toast("Annote is running — press ⌥P / Alt+P to start picking");
   };
   script.onerror = () => toast("Could not load Annote");
   document.documentElement.appendChild(script);

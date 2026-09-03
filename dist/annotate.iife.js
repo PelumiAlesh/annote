@@ -32601,6 +32601,10 @@
     if (NUMERIC_PROPERTY_PATTERN.test(property2) && simpleNumericParts(value)) return { control: "number", step: 1 };
     return { control: "text" };
   }
+  function isCustomSegmentValue(options, value) {
+    const trimmed = value.trim();
+    return trimmed !== "" && !options.includes(trimmed);
+  }
   function serializeEditedStyles(edits) {
     const grouped = {};
     edits.forEach((edit) => {
@@ -32728,29 +32732,189 @@
       confirmLabel: "Delete"
     };
   }
-  var CONFIRM_INITIAL_FOCUS = "cancel";
+  var CONFIRM_INITIAL_FOCUS = "delete";
 
   // src/shortcuts.ts
   function isMacPlatform(platform) {
     return /mac/i.test(platform || "");
   }
   function shortcutLabel(action, isMac) {
-    if (action === "toggle-pick") return isMac ? "\u2318\u2325P" : "Ctrl+Alt+P";
-    if (action === "copy") return isMac ? "\u2318\u2325C" : "Ctrl+Alt+C";
-    return isMac ? "\u2318\u232B" : "Ctrl+Backspace";
-  }
-  function modHeld(event) {
-    return event.ctrlKey || event.metaKey;
+    if (action === "toggle-pick") return isMac ? "\u2325P" : "Alt+P";
+    if (action === "copy") return isMac ? "\u2325C" : "Alt+C";
+    if (action === "destroy") return "Esc";
+    return isMac ? "\u2325\u232B" : "Alt+Backspace";
   }
   function matchGlobalShortcut(event) {
-    if (!modHeld(event)) return null;
-    if (event.key === "Backspace" && !event.altKey && !event.shiftKey) return "delete";
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null;
+    if (event.key === "Backspace") return "delete";
     const code2 = event.code || "";
-    if (event.altKey && !event.shiftKey) {
-      if (code2 === "KeyP") return "toggle-pick";
-      if (code2 === "KeyC") return "copy";
-    }
+    if (code2 === "KeyP") return "toggle-pick";
+    if (code2 === "KeyC") return "copy";
     return null;
+  }
+
+  // src/settings-view.ts
+  var ANNOTE_VERSION = "0.1.6";
+  function mcpStatusLabel(status) {
+    if (status === "connected") return "Connected";
+    if (status === "permission-required") return "Permission needed";
+    if (status === "protocol-incompatible") return "Update required";
+    if (status === "error") return "Error";
+    return "Not connected";
+  }
+  function mcpNeedsApprovalStatus(status) {
+    return status === "permission-required";
+  }
+  function renderSettingsToggle(data, key, label, help) {
+    const checked = data.settings[key];
+    return `<div class="settings-row" aria-checked="${checked ? "true" : "false"}" data-action="toggle-setting" data-setting="${key}">
+      <span class="settings-row-label">
+        <strong>${escapeHtml(label)}</strong>
+        <button type="button" class="settings-help-tip" aria-label="${escapeHtml(help)}" data-tooltip="${escapeHtml(help)}">?</button>
+      </span>
+      <button class="settings-switch" type="button" role="switch" aria-checked="${checked ? "true" : "false"}" aria-label="${escapeHtml(label)}" data-action="toggle-setting" data-setting="${key}"><span class="settings-toggle" aria-hidden="true"></span></button>
+    </div>`;
+  }
+  function renderSettingsRoot(data) {
+    return `
+      <div class="panel-head">
+        <div class="panel-title">
+          <h2>Settings</h2>
+        </div>
+      </div>
+      <div class="settings-list">
+        <section class="settings-section" aria-label="Behavior">
+          ${renderSettingsToggle(data, "pauseAnimationOnSelect", "Pause animation on select", "Pause active motion when you select it.")}
+          ${renderSettingsToggle(data, "clearAfterSend", "Clear after send", "Remove submitted annotations after sending.")}
+          ${renderSettingsToggle(data, "preventPageActions", "Prevent page interactions while annotating", "Prevent clicks and hover interactions while selecting elements.")}
+        </section>
+        <section class="settings-section" aria-label="Context">
+          ${renderSettingsToggle(data, "reactContext", "React context", "Include component and source context when available.")}
+        </section>
+        <section class="settings-section" aria-label="Connections">
+          <div class="settings-row" role="button" tabindex="0" data-action="settings-view" data-settings-view="mcp" aria-label="MCP, ${escapeHtml(mcpStatusLabel(data.mcpStatus))}">
+            <span class="settings-row-label">
+              <strong>MCP</strong>
+              <button type="button" class="settings-help-tip" aria-label="Connect MCP to your coding agent." data-tooltip="Connect MCP to your coding agent.">?</button>
+            </span>
+            <span class="settings-row-meta">${mcpNeedsApprovalStatus(data.mcpStatus) ? `<span class="settings-approval-dot" aria-hidden="true"></span>` : ""}<span>${escapeHtml(mcpStatusLabel(data.mcpStatus))}</span><span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
+          </div>
+        </section>
+        <section class="settings-section" aria-label="Help">
+          <div class="settings-row" role="button" tabindex="0" data-action="settings-view" data-settings-view="help" aria-label="How to use">
+            <span class="settings-row-label"><strong>How to use</strong></span>
+            <span class="settings-row-meta"><span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
+          </div>
+        </section>
+      </div>
+      <div class="settings-version">v${ANNOTE_VERSION}</div>
+      ${data.noticeHtml}
+    `;
+  }
+  function renderSettingsHeader(title) {
+    return `<div class="panel-head detail">
+      <button class="settings-back" type="button" data-action="settings-view" data-settings-view="root" aria-label="Back">&lsaquo;</button>
+      <div class="panel-title"><h2>${escapeHtml(title)}</h2></div>
+    </div>`;
+  }
+  function renderMcpSettings(data) {
+    if (data.mcpStatus === "permission-required") {
+      return `
+        ${renderSettingsHeader("MCP")}
+        <div class="settings-detail">
+          <h3 class="settings-state-title approval"><span class="settings-live-dot" aria-hidden="true"></span>Permission needed</h3>
+          <p class="settings-copy">Allow Annote on</p>
+          <div class="settings-command"><code>${escapeHtml(data.site)}</code></div>
+          <button class="text-btn compact primary" type="button" data-action="settings-mcp-allow">Allow on this site</button>
+          <p class="settings-copy">You only need to do this once.</p>
+        </div>
+        ${data.noticeHtml}
+      `;
+    }
+    if (data.mcpStatus === "connected") {
+      return `
+        ${renderSettingsHeader("MCP")}
+        <div class="settings-detail">
+          <h3 class="settings-state-title"><span class="settings-live-dot" aria-hidden="true"></span>Connected</h3>
+          <p class="settings-copy">Annote is ready to share feedback with your coding agent.</p>
+          <div class="settings-kv">
+            <div class="settings-kv-row"><span>Site</span><strong>${escapeHtml(data.site)}</strong></div>
+          </div>
+          <button class="settings-link-button" type="button" data-action="settings-mcp-revoke">Revoke this site</button>
+        </div>
+        ${data.noticeHtml}
+      `;
+    }
+    if (data.mcpStatus === "protocol-incompatible") {
+      return `
+        ${renderSettingsHeader("MCP")}
+        <div class="settings-detail">
+          <h3 class="settings-state-title">Update required</h3>
+          <p class="settings-copy">Your Annote browser and MCP companion use different versions.</p>
+          <div class="settings-command"><code>npm run mcp:build</code><button type="button" data-action="settings-copy-command">${data.mcpSetupCopyState === "copied" ? "Copied" : "Copy"}</button></div>
+        </div>
+        ${data.noticeHtml}
+      `;
+    }
+    if (data.mcpStatus === "error") {
+      return `
+        ${renderSettingsHeader("MCP")}
+        <div class="settings-detail">
+          <h3 class="settings-state-title">Something's not connecting.</h3>
+          <button class="text-btn compact" type="button" data-action="settings-copy-doctor">Run diagnostics</button>
+        </div>
+        ${data.noticeHtml}
+      `;
+    }
+    return `
+      ${renderSettingsHeader("MCP")}
+      <div class="settings-detail">
+        <p class="settings-copy">Connect MCP to your coding agent.</p>
+        <h3 class="settings-state-title">Not connected</h3>
+        <p class="settings-copy">Run once</p>
+        <div class="settings-command"><code>${escapeHtml(data.setupCommand)}</code><button type="button" data-action="settings-copy-command">${data.mcpSetupCopyState === "copied" ? "Copied" : "Copy"}</button></div>
+        <p class="settings-copy">Then restart your coding agent.</p>
+      </div>
+      ${data.noticeHtml}
+    `;
+  }
+  function renderHelpSettings(data) {
+    const rows = [
+      ["Select element", "Click"],
+      ["Multi-select / add-remove", "Shift + click"],
+      ["Move toolbar", "Hold + drag"],
+      ["Pick element", data.shortcuts.pick],
+      ["Copy unresolved", data.shortcuts.copy],
+      ["Delete", `${data.shortcuts.del} + confirm`],
+      ["Stop selecting", "Esc"],
+      ["Submit", "Enter"],
+      ["New line", "Shift + Enter"],
+      ["Cancel", "Esc"],
+      ["Scrub animation", "Drag timeline"],
+      ["Replay animation", "Replay button"],
+      ["Coding agent", "Settings -> MCP"]
+    ];
+    if (data.settings.pauseAnimationOnSelect) rows.splice(8, 0, ["Inspect animation", "Select animated element"]);
+    return `
+      ${renderSettingsHeader("How to use")}
+      <div class="settings-detail">
+        <div class="settings-kv">
+          ${rows.map(([label, value]) => `<div class="settings-kv-row"><span>${escapeHtml(label)}</span><span class="settings-kbd">${escapeHtml(value)}</span></div>`).join("")}
+        </div>
+      </div>
+    `;
+  }
+  function renderSettingsPageContent(data) {
+    if (data.settingsView === "mcp") return renderMcpSettings(data);
+    if (data.settingsView === "help") return renderHelpSettings(data);
+    return renderSettingsRoot(data);
+  }
+  function renderSettingsContent(data) {
+    return `<div class="settings-viewport" data-settings-viewport>
+      <div class="settings-page" data-settings-page data-settings-view="${data.settingsView}">
+        ${renderSettingsPageContent(data)}
+      </div>
+    </div>`;
   }
 
   // src/ui-label.ts
@@ -34525,15 +34689,9 @@
       "toggle-pick": shortcutLabel("toggle-pick", IS_MAC),
       copy: shortcutLabel("copy", IS_MAC),
       clear: shortcutLabel("delete", IS_MAC),
-      "delete-current": shortcutLabel("delete-current", IS_MAC)
+      "delete-current": shortcutLabel("delete-current", IS_MAC),
+      destroy: shortcutLabel("destroy", IS_MAC)
     };
-    function isPanelControlFocused() {
-      const active = state.shadow?.activeElement || document.activeElement;
-      if (!active || !(active instanceof HTMLElement)) return false;
-      if (!state.rootHost?.contains(active) && active !== document.activeElement) return false;
-      if (!isAnnotatorNode(active)) return false;
-      return active instanceof HTMLButtonElement || active.getAttribute?.("role") === "button" || active.hasAttribute?.("data-action");
-    }
     function isTypingInInput(target) {
       const element = target instanceof HTMLElement ? target : null;
       if (element) {
@@ -34554,7 +34712,6 @@
       if (isTypingInInput(event.target)) return false;
       const action = matchGlobalShortcut(event);
       if (!action) return false;
-      if ((action === "toggle-pick" || action === "copy") && isPanelControlFocused()) return false;
       if (action === "toggle-pick") {
         event.preventDefault();
         togglePick();
@@ -34671,6 +34828,7 @@
       suppressNextToolbarClick: false,
       interactionShield: null,
       structureOpen: false,
+      structureAnimating: false,
       structureChildrenExpanded: false,
       structureSiblingsExpanded: false,
       styleScrollTop: 0,
@@ -34690,7 +34848,8 @@
       confirmClosing: false,
       confirmFocus: CONFIRM_INITIAL_FOCUS,
       confirmInvoker: null,
-      confirmTimer: null
+      confirmTimer: null,
+      confirmResumePick: false
     };
     const reactAdapter = createReactAdapter();
     const reactSourceCoordinator = createReactSourceCoordinator(reactAdapter);
@@ -36727,6 +36886,16 @@
         cursor: default;
         opacity: .32;
       }
+      .icon-btn[aria-disabled="true"] {
+        cursor: default;
+        opacity: .38;
+      }
+      .icon-btn[aria-disabled="true"]:hover {
+        transform: none;
+      }
+      .icon-btn.danger[aria-disabled="true"]:hover {
+        color: rgba(255,255,255,.86);
+      }
       .icon-btn:disabled:hover {
         transform: none;
         background: transparent;
@@ -38678,7 +38847,16 @@
       .settings-help-tip::after {
         content: "";
         position: absolute;
-        inset: -12px;
+        inset: -6px;
+      }
+      .settings-switch {
+        border: 0;
+        background: transparent;
+        padding: 6px 8px;
+        margin: -6px -8px;
+        display: inline-flex;
+        align-items: center;
+        cursor: pointer;
       }
       .settings-help-tip:focus-visible {
         outline: none;
@@ -38690,6 +38868,12 @@
         gap: 7px;
         color: rgba(255,255,255,.48);
         white-space: nowrap;
+      }
+      .settings-version {
+        padding: 10px 12px 12px;
+        color: rgba(255,255,255,.38);
+        font-size: 10px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       }
       .settings-approval-dot {
         width: 7px;
@@ -38828,16 +39012,19 @@
         height: 100%;
       }
       .settings-page.enter-forward {
-        animation: fm-settings-enter-forward 180ms cubic-bezier(.2,.8,.2,1) both;
+        animation: fm-settings-enter-forward 200ms cubic-bezier(.25,.8,.25,1) both;
       }
       .settings-page.exit-forward {
-        animation: fm-settings-exit-forward 180ms cubic-bezier(.2,.8,.2,1) both;
+        animation: fm-settings-exit-forward 200ms cubic-bezier(.25,.8,.25,1) both;
       }
       .settings-page.enter-back {
-        animation: fm-settings-enter-back 180ms cubic-bezier(.2,.8,.2,1) both;
+        animation: fm-settings-enter-back 200ms cubic-bezier(.25,.8,.25,1) both;
       }
       .settings-page.exit-back {
-        animation: fm-settings-exit-back 180ms cubic-bezier(.2,.8,.2,1) both;
+        animation: fm-settings-exit-back 200ms cubic-bezier(.25,.8,.25,1) both;
+      }
+      .settings-viewport.animating {
+        transition: height 200ms cubic-bezier(.25,.8,.25,1);
       }
       .settings-command {
         display: grid;
@@ -39070,20 +39257,20 @@
         to { opacity: 1; transform: translateY(0) scale(1); }
       }
       @keyframes fm-settings-enter-forward {
-        from { opacity: 0; transform: translateX(18px); }
+        from { opacity: 0; transform: translateX(8px); }
         to { opacity: 1; transform: translateX(0); }
       }
       @keyframes fm-settings-exit-forward {
         from { opacity: 1; transform: translateX(0); }
-        to { opacity: 0; transform: translateX(-18px); }
+        to { opacity: 0; transform: translateX(-8px); }
       }
       @keyframes fm-settings-enter-back {
-        from { opacity: 0; transform: translateX(-18px); }
+        from { opacity: 0; transform: translateX(-8px); }
         to { opacity: 1; transform: translateX(0); }
       }
       @keyframes fm-settings-exit-back {
         from { opacity: 1; transform: translateX(0); }
-        to { opacity: 0; transform: translateX(18px); }
+        to { opacity: 0; transform: translateX(8px); }
       }
       @keyframes fm-compose {
         from { opacity: 0; transform: translateY(10px) scale(.96); }
@@ -39263,7 +39450,7 @@
         display: grid;
         grid-template-rows: 1fr;
         opacity: 1;
-        transition: grid-template-rows 220ms cubic-bezier(.2,.8,.2,1), opacity 180ms ease;
+        transition: grid-template-rows 220ms cubic-bezier(.2,.8,.2,1), opacity 180ms ease, margin-top 220ms cubic-bezier(.2,.8,.2,1);
         margin-top: 6px;
         padding: 0 9px;
       }
@@ -39808,7 +39995,7 @@
       const label = bound ? `Unlink ${propertyLabel(row.property)} token` : `Show ${propertyLabel(row.property)} tokens`;
       const tip = bound ? "Unlink token" : "Add token";
       return `<span class="token-menu-anchor">
-      <button class="token-button ${bound ? "bound" : ""}" type="button" data-action="${action}" data-property="${escapeHtml(row.property)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(label)}" aria-expanded="${state.openTokenMenu === key}">${icon("token")}</button>
+      <button class="token-button ${bound ? "bound" : ""}" type="button" data-action="${action}" data-property="${escapeHtml(row.property)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(label)}" data-tooltip="${escapeHtml(tip)}" aria-expanded="${state.openTokenMenu === key}">${icon("token")}</button>
       ${renderTokenMenu(row)}
     </span>`;
     }
@@ -39847,8 +40034,8 @@
       return `<span class="number-field">
       ${renderCssInput(row, value, valid, `number-input ${extraClass}`)}
       <span class="stepper-stack" aria-hidden="false">
-        <button type="button" class="stepper-btn" data-action="step-css" data-property="${escapeHtml(row.property)}" data-direction="1" aria-label="Increase ${escapeHtml(row.property)}">${icon("chevron-up")}</button>
-        <button type="button" class="stepper-btn" data-action="step-css" data-property="${escapeHtml(row.property)}" data-direction="-1" aria-label="Decrease ${escapeHtml(row.property)}">${icon("chevron-down")}</button>
+        <button type="button" class="stepper-btn" data-action="step-css" data-property="${escapeHtml(row.property)}" data-direction="1" aria-label="Increase ${escapeHtml(row.property)}" data-tooltip="Increase ${escapeHtml(row.property)}">${icon("chevron-up")}</button>
+        <button type="button" class="stepper-btn" data-action="step-css" data-property="${escapeHtml(row.property)}" data-direction="-1" aria-label="Decrease ${escapeHtml(row.property)}" data-tooltip="Decrease ${escapeHtml(row.property)}">${icon("chevron-down")}</button>
       </span>
     </span>`;
     }
@@ -39894,7 +40081,7 @@
       ];
       const linkTip = linked ? `Unlink ${propertyLabel(row.property)} sides` : `Link ${propertyLabel(row.property)} sides`;
       return `<span class="box-control ${linked ? "linked" : "unlinked"}">
-      <button class="link-toggle ${linked ? "linked" : "unlinked"}" type="button" data-action="toggle-box-link" data-property="${escapeHtml(row.property)}" data-current-box="${escapeHtml(value)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(linkTip)}">${icon(linked ? "link" : "unlink")}</button>
+      <button class="link-toggle ${linked ? "linked" : "unlinked"}" type="button" data-action="toggle-box-link" data-property="${escapeHtml(row.property)}" data-current-box="${escapeHtml(value)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(linkTip)}" data-tooltip="${escapeHtml(linkTip)}">${icon(linked ? "link" : "unlink")}</button>
       <span class="padding-control">
         ${sides.map(
         ([side, _iconName, sideValue], index) => `<label class="box-side" aria-label="${escapeHtml(`${propertyLabel(row.property)} ${side}`)}">
@@ -39911,12 +40098,12 @@
       const className = `css-row control-${config.control} ${propertyClass} ${valid ? "" : "invalid"} ${changed ? "changed" : ""}`;
       if (config.control === "segmented" && config.options?.length) {
         const mixed = value === "Mixed";
-        const custom = !config.options.includes(value.trim());
+        const custom = isCustomSegmentValue(config.options, value);
         const control = `<span class="segmented-control" role="radiogroup" aria-label="${escapeHtml(row.property)} value">
         ${config.options.map(
           (option) => {
             const label = optionLabel(option);
-            return `<button class="segment ${row.property === "text-align" ? "icon-segment" : ""} ${option === value.trim() ? "active" : ""}" type="button" role="radio" aria-label="${escapeHtml(label)}" aria-checked="${option === value.trim()}" data-action="set-segment" data-property="${escapeHtml(row.property)}" data-value="${escapeHtml(option)}" ${mixed ? "disabled" : ""}>${segmentContent(row.property, option)}</button>`;
+            return `<button class="segment ${row.property === "text-align" ? "icon-segment" : ""} ${option === value.trim() ? "active" : ""}" type="button" role="radio" aria-label="${escapeHtml(label)}"${row.property === "text-align" ? ` data-tooltip="${escapeHtml(label)}"` : ""} aria-checked="${option === value.trim()}" data-action="set-segment" data-property="${escapeHtml(row.property)}" data-value="${escapeHtml(option)}" data-original-value="${escapeHtml(row.value)}" ${mixed ? "disabled" : ""}>${segmentContent(row.property, option)}</button>`;
           }
         ).join("")}
         ${custom && !mixed ? renderCssInput(row, value, valid, "compact-custom") : ""}
@@ -39954,7 +40141,7 @@
         </div>`;
         }
         const compoundControl = `<span class="compound-control ${linked ? "linked" : "unlinked"}">
-        <button class="link-toggle ${linked ? "linked" : "unlinked"}" type="button" data-action="toggle-box-link" data-property="${escapeHtml(row.property)}" data-current-box="${escapeHtml(value)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(linked ? `Unlink ${propertyLabel(row.property)} sides` : `Link ${propertyLabel(row.property)} sides`)}">${icon(linked ? "link" : "unlink")}</button>
+        <button class="link-toggle ${linked ? "linked" : "unlinked"}" type="button" data-action="toggle-box-link" data-property="${escapeHtml(row.property)}" data-current-box="${escapeHtml(value)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(linked ? `Unlink ${propertyLabel(row.property)} sides` : `Link ${propertyLabel(row.property)} sides`)}" data-tooltip="${escapeHtml(linked ? "Unlink sides" : "Link sides")}">${icon(linked ? "link" : "unlink")}</button>
         ${linked && stepCssNumericValue(row.property, value, 1) ? renderNumberField(row, value, valid) : renderCssInput(row, value, valid)}
       </span>`;
         return `<div class="${className}">
@@ -40389,169 +40576,20 @@
             </div>` : ""}
     </form>`;
     }
-    function renderSettingsToggle(key, label, help) {
-      const checked = state.settings[key];
-      return `<button class="settings-row" type="button" role="switch" aria-checked="${checked ? "true" : "false"}" data-action="toggle-setting" data-setting="${key}">
-      <span class="settings-row-label">
-        <strong>${escapeHtml(label)}</strong>
-        <button type="button" class="settings-help-tip" aria-label="${escapeHtml(help)}" data-tooltip="${escapeHtml(help)}">?</button>
-      </span>
-      <span class="settings-toggle" aria-hidden="true"></span>
-    </button>`;
-    }
-    function mcpStatusLabel(status) {
-      if (status === "connected") return "Connected";
-      if (status === "permission-required") return "Permission needed";
-      if (status === "protocol-incompatible") return "Update required";
-      if (status === "error") return "Error";
-      return "Not connected";
-    }
-    function mcpNeedsApproval() {
-      return state.mcpStatus === "permission-required";
-    }
-    function renderSettingsRoot() {
-      return `
-      <div class="panel-head">
-        <div class="panel-title">
-          <h2>Settings</h2>
-        </div>
-      </div>
-      <div class="settings-list">
-        <section class="settings-section" aria-label="Behavior">
-          ${renderSettingsToggle("pauseAnimationOnSelect", "Pause animation on select", "Pause active motion when you select it.")}
-          ${renderSettingsToggle("clearAfterSend", "Clear after send", "Remove submitted annotations after sending.")}
-          ${renderSettingsToggle("preventPageActions", "Prevent page interactions while annotating", "Prevent clicks and hover interactions while selecting elements.")}
-        </section>
-        <section class="settings-section" aria-label="Context">
-          ${renderSettingsToggle("reactContext", "React context", "Include component and source context when available.")}
-        </section>
-        <section class="settings-section" aria-label="Connections">
-          <button class="settings-row" type="button" data-action="settings-view" data-settings-view="mcp">
-            <span class="settings-row-label">
-              <strong>MCP</strong>
-              <button type="button" class="settings-help-tip" aria-label="Connect MCP to your coding agent." data-tooltip="Connect MCP to your coding agent.">?</button>
-            </span>
-            <span class="settings-row-meta">${mcpNeedsApproval() ? `<span class="settings-approval-dot" aria-hidden="true"></span>` : ""}<span>${escapeHtml(mcpStatusLabel(state.mcpStatus))}</span><span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
-          </button>
-        </section>
-        <section class="settings-section" aria-label="Help">
-          <button class="settings-row" type="button" data-action="settings-view" data-settings-view="help">
-            <span class="settings-row-label"><strong>How to use</strong></span>
-            <span class="settings-row-meta"><span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
-          </button>
-        </section>
-      </div>
-      ${noticeHtml()}
-    `;
-    }
-    function renderSettingsHeader(title) {
-      return `<div class="panel-head detail">
-      <button class="settings-back" type="button" data-action="settings-view" data-settings-view="root" aria-label="Back">&lsaquo;</button>
-      <div class="panel-title"><h2>${escapeHtml(title)}</h2></div>
-    </div>`;
-    }
-    function renderMcpSettings() {
-      const site = location.host || location.origin;
-      if (state.mcpStatus === "permission-required") {
-        return `
-        ${renderSettingsHeader("MCP")}
-        <div class="settings-detail">
-          <h3 class="settings-state-title approval"><span class="settings-live-dot" aria-hidden="true"></span>Permission needed</h3>
-          <p class="settings-copy">Allow Annote on</p>
-          <div class="settings-command"><code>${escapeHtml(site)}</code></div>
-          <button class="text-btn compact primary" type="button" data-action="settings-mcp-allow">Allow on this site</button>
-          <p class="settings-copy">You only need to do this once.</p>
-        </div>
-        ${noticeHtml()}
-      `;
-      }
-      if (state.mcpStatus === "connected") {
-        return `
-        ${renderSettingsHeader("MCP")}
-        <div class="settings-detail">
-          <h3 class="settings-state-title"><span class="settings-live-dot" aria-hidden="true"></span>Connected</h3>
-          <p class="settings-copy">Annote is ready to share feedback with your coding agent.</p>
-          <div class="settings-kv">
-            <div class="settings-kv-row"><span>Site</span><strong>${escapeHtml(site)}</strong></div>
-          </div>
-          <button class="settings-link-button" type="button" data-action="settings-mcp-revoke">Revoke this site</button>
-        </div>
-        ${noticeHtml()}
-      `;
-      }
-      if (state.mcpStatus === "protocol-incompatible") {
-        return `
-        ${renderSettingsHeader("MCP")}
-        <div class="settings-detail">
-          <h3 class="settings-state-title">Update required</h3>
-          <p class="settings-copy">Your Annote browser and MCP companion use different versions.</p>
-          <div class="settings-command"><code>npm run mcp:build</code><button type="button" data-action="settings-copy-command">${state.mcpSetupCopyState === "copied" ? "Copied" : "Copy"}</button></div>
-        </div>
-        ${noticeHtml()}
-      `;
-      }
-      if (state.mcpStatus === "error") {
-        return `
-        ${renderSettingsHeader("MCP")}
-        <div class="settings-detail">
-          <h3 class="settings-state-title">Something's not connecting.</h3>
-          <button class="text-btn compact" type="button" data-action="settings-copy-doctor">Run diagnostics</button>
-        </div>
-        ${noticeHtml()}
-      `;
-      }
-      return `
-      ${renderSettingsHeader("MCP")}
-      <div class="settings-detail">
-        <p class="settings-copy">Connect MCP to your coding agent.</p>
-        <h3 class="settings-state-title">Not connected</h3>
-        <p class="settings-copy">Run once</p>
-        <div class="settings-command"><code>${escapeHtml(ANNOTE_LOCAL_SETUP_COMMAND)}</code><button type="button" data-action="settings-copy-command">${state.mcpSetupCopyState === "copied" ? "Copied" : "Copy"}</button></div>
-        <p class="settings-copy">Then restart your coding agent.</p>
-      </div>
-      ${noticeHtml()}
-    `;
-    }
-    function renderHelpSettings() {
-      const rows = [
-        ["Select element", "Click"],
-        ["Multi-select / add-remove", "Shift + click"],
-        ["Move toolbar", "Hold + drag"],
-        ["Pick element", SHORTCUTS["toggle-pick"]],
-        ["Copy unresolved", SHORTCUTS.copy],
-        ["Delete", `${SHORTCUTS.clear} + confirm`],
-        ["Stop selecting", "Esc"],
-        ["Submit", "Enter"],
-        ["New line", "Shift + Enter"],
-        ["Cancel", "Esc"],
-        ["Scrub animation", "Drag timeline"],
-        ["Replay animation", "Replay button"],
-        ["Coding agent", "Settings -> MCP"]
-      ];
-      if (state.settings.pauseAnimationOnSelect) rows.splice(8, 0, ["Inspect animation", "Select animated element"]);
-      return `
-      ${renderSettingsHeader("How to use")}
-      <div class="settings-detail">
-        <div class="settings-kv">
-          ${rows.map(([label, value]) => `<div class="settings-kv-row"><span>${escapeHtml(label)}</span><span class="settings-kbd">${escapeHtml(value)}</span></div>`).join("")}
-        </div>
-      </div>
-    `;
-    }
-    function renderSettingsPageContent() {
-      if (state.settingsView === "mcp") return renderMcpSettings();
-      if (state.settingsView === "help") return renderHelpSettings();
-      return renderSettingsRoot();
-    }
-    function renderSettingsContent() {
-      return `<div class="settings-viewport" data-settings-viewport>
-      <div class="settings-page" data-settings-page data-settings-view="${state.settingsView}">
-        ${renderSettingsPageContent()}
-      </div>
-    </div>`;
-    }
     function settingsViewDepth(view) {
       return view === "root" ? 0 : 1;
+    }
+    function settingsViewData() {
+      return {
+        settings: state.settings,
+        mcpStatus: state.mcpStatus,
+        settingsView: state.settingsView,
+        mcpSetupCopyState: state.mcpSetupCopyState,
+        setupCommand: ANNOTE_LOCAL_SETUP_COMMAND,
+        site: location.host || location.origin,
+        noticeHtml: noticeHtml(),
+        shortcuts: { pick: SHORTCUTS["toggle-pick"], copy: SHORTCUTS.copy, del: SHORTCUTS.clear }
+      };
     }
     function transitionSettingsView(view) {
       if (settingsTransitioning || state.settingsView === view) return;
@@ -40573,22 +40611,37 @@
       nextPage.className = `settings-page animating enter-${direction}`;
       nextPage.dataset.settingsPage = "";
       nextPage.dataset.settingsView = view;
-      nextPage.innerHTML = renderSettingsPageContent();
+      nextPage.innerHTML = renderSettingsPageContent(settingsViewData());
       currentPage.classList.add("animating", `exit-${direction}`);
-      viewport.style.height = `${Math.ceil(viewport.getBoundingClientRect().height)}px`;
+      const currentHeight = Math.ceil(viewport.getBoundingClientRect().height);
       viewport.appendChild(nextPage);
+      const probe = nextPage.cloneNode(true);
+      probe.removeAttribute("data-settings-page");
+      probe.classList.remove("animating", `enter-${direction}`);
+      probe.style.position = "absolute";
+      probe.style.visibility = "hidden";
+      probe.style.height = "auto";
+      probe.style.width = "100%";
+      viewport.appendChild(probe);
+      const nextHeight = probe.scrollHeight;
+      probe.remove();
+      viewport.style.height = `${currentHeight}px`;
+      void viewport.offsetHeight;
+      viewport.classList.add("animating");
+      viewport.style.height = `${nextHeight}px`;
       bindShadowEvents();
       window.setTimeout(() => {
         if (!state.shadow?.contains(nextPage)) return;
         currentPage.remove();
         nextPage.classList.remove("animating", `enter-${direction}`);
+        viewport.classList.remove("animating");
         viewport.style.height = "";
         settingsTransitioning = false;
-      }, 190);
+      }, 200);
     }
     function renderPanelContent() {
       if (state.panelMode === "settings") {
-        return renderSettingsContent();
+        return renderSettingsContent(settingsViewData());
       }
       return `
       <div class="panel-head">
@@ -41301,9 +41354,9 @@
                 <div class="toolbar-controls">
                   ${iconButton("toggle-pick", state.active ? "Stop picking" : "Pick element", "target", "pick-toggle")}
                   ${iconButton("toggle-panel", `Review ${state.annotations.length}`, "note", state.visible && state.panelMode === "review" ? "active-control" : "")}
-                  ${iconButton("copy", "Copy unresolved", copyIcon, copyClass)}
-                  ${iconButton("clear", "Clear annotations", "trash", "danger", state.annotations.length ? "" : "disabled")}
-                  ${iconButton("settings", "Settings", "settings", `${state.visible && state.panelMode === "settings" ? "active-control" : ""} ${mcpNeedsApproval() ? "needs-attention" : ""}`.trim())}
+                  ${iconButton("copy", "Copy unresolved", copyIcon, copyClass, unresolvedAnnotations().length ? "" : 'aria-disabled="true"')}
+                  ${iconButton("clear", "Clear annotations", "trash", "danger", state.annotations.length ? "" : 'aria-disabled="true"')}
+                  ${iconButton("settings", "Settings", "settings", `${state.visible && state.panelMode === "settings" ? "active-control" : ""} ${mcpNeedsApprovalStatus(state.mcpStatus) ? "needs-attention" : ""}`.trim())}
                   <span class="toolbar-divider" aria-hidden="true"></span>
                   ${iconButton("collapse", "Collapse toolbar", "minus")}
                   ${iconButton("destroy", "Close annotator", "cross", "borderless")}
@@ -41442,6 +41495,13 @@
     function bindShadowEvents() {
       const root = state.shadow;
       if (!root) return;
+      if (state.cssOpen) {
+        root.querySelectorAll(".css-name").forEach((label) => {
+          const full = label.textContent?.trim() || "";
+          if (full && label.scrollWidth > label.clientWidth + 1) label.setAttribute("data-tooltip", full);
+          else label.removeAttribute("data-tooltip");
+        });
+      }
       bindToolbarTooltipGroup(root);
       if (!state.shadowClickBound) {
         root.addEventListener("click", onShadowRootClick);
@@ -41464,6 +41524,7 @@
             state.suppressNextToolbarClick = false;
             return;
           }
+          if (control.getAttribute("aria-disabled") === "true") return;
           const action = control.dataset.action;
           const id = control.dataset.id;
           if (action === "open-toolbar") {
@@ -41507,7 +41568,11 @@
             const key = control.dataset.setting;
             if (key in state.settings) {
               updateSetting2(key, !state.settings[key], false);
-              control.setAttribute("aria-checked", state.settings[key] ? "true" : "false");
+              const checked = state.settings[key] ? "true" : "false";
+              control.setAttribute("aria-checked", checked);
+              const row = control.closest?.(".settings-row");
+              row?.setAttribute("aria-checked", checked);
+              row?.querySelector('[role="switch"]')?.setAttribute("aria-checked", checked);
             }
           }
           if (action === "settings-view" && control.dataset.settingsView) {
@@ -41594,6 +41659,7 @@
             render();
           }
           if (action === "set-selection-scope" && control.dataset.scope && state.selectedElements.length > 1 && state.selectedElement) {
+            if (blockDirtyComposerSwitch()) return;
             const previousComment = state.draft?.comment || "";
             const previousIntent = state.draft?.intent || "fix";
             state.selectionScope = control.dataset.scope === "parent" ? "parent" : "individual";
@@ -41610,8 +41676,40 @@
             render();
           }
           if (action === "toggle-structure") {
-            state.structureOpen = !state.structureOpen;
-            render();
+            if (state.structureAnimating) return;
+            if (!state.structureOpen) {
+              state.structureOpen = true;
+              render();
+              if (!prefersReducedMotion()) {
+                state.shadow?.querySelector(".structure-body")?.animate(
+                  [
+                    { gridTemplateRows: "0fr", opacity: 0, marginTop: "0" },
+                    { gridTemplateRows: "1fr", opacity: 1, marginTop: "6px" }
+                  ],
+                  { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" }
+                );
+              }
+              return;
+            }
+            const body = state.shadow?.querySelector(".structure-body");
+            if (body && !prefersReducedMotion()) {
+              state.structureAnimating = true;
+              body.animate(
+                [
+                  { gridTemplateRows: "1fr", opacity: 1, marginTop: "6px" },
+                  { gridTemplateRows: "0fr", opacity: 0, marginTop: "0" }
+                ],
+                { duration: 180, easing: "cubic-bezier(.2,.8,.2,1)" }
+              );
+              window.setTimeout(() => {
+                state.structureAnimating = false;
+                state.structureOpen = false;
+                render();
+              }, 190);
+            } else {
+              state.structureOpen = false;
+              render();
+            }
           }
           if (action === "toggle-structure-children") {
             state.structureChildrenExpanded = !state.structureChildrenExpanded;
@@ -41622,6 +41720,7 @@
             render();
           }
           if (control.dataset.structureTarget) {
+            if (blockDirtyComposerSwitch()) return;
             const selector2 = control.dataset.structureTarget;
             const target = resolveElement(selector2);
             if (target && isStructureCandidate(target)) {
@@ -41676,7 +41775,7 @@
             const property2 = control.dataset.property || "";
             const value = control.dataset.value || "";
             const input = root.querySelector(`[data-css-property="${cssEscape(property2)}"]`);
-            const original = input?.dataset.originalValue || "";
+            const original = control.dataset.originalValue || input?.dataset.originalValue || "";
             updateStyleEdit(property2, value, original);
             state.autocomplete = null;
             state.openFontMenu = null;
@@ -41863,6 +41962,8 @@
       root.querySelector("[data-motion-scrubber]")?.addEventListener("pointerup", endMotionScrub);
       root.querySelector("[data-motion-scrubber]")?.addEventListener("pointercancel", endMotionScrub);
       root.querySelector("[data-motion-scrubber]")?.addEventListener("keydown", scrubberKeyStep);
+      root.querySelector("[data-confirm-scrim]")?.addEventListener("wheel", (event) => event.preventDefault(), { passive: false });
+      root.querySelector("[data-confirm-scrim]")?.addEventListener("touchmove", (event) => event.preventDefault(), { passive: false });
       root.querySelectorAll("[data-motion-graph-handle]").forEach((handle) => {
         handle.addEventListener("pointerdown", beginMotionGraphDrag);
       });
@@ -42043,6 +42144,7 @@
         row.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
+          if (blockDirtyComposerSwitch()) return;
           const selector2 = row.dataset.structureTarget;
           const target = selector2 ? resolveElement(selector2) : null;
           if (target && isStructureCandidate(target)) {
@@ -42417,10 +42519,21 @@
       state.confirm = { kind, targetId, count };
       state.confirmClosing = false;
       state.confirmFocus = CONFIRM_INITIAL_FOCUS;
+      state.confirmResumePick = state.active;
+      state.active = false;
+      setAnnotatingCursor(false);
+      state.hoverElement = null;
       render();
       requestAnimationFrame(() => {
-        state.shadow?.querySelector("[data-confirm-cancel]")?.focus();
+        state.shadow?.querySelector("[data-action='confirm-delete']")?.focus();
       });
+    }
+    function restoreConfirmPick() {
+      if (!state.confirmResumePick) return;
+      state.confirmResumePick = false;
+      if (!state.shadow) return;
+      state.active = true;
+      setAnnotatingCursor(true);
     }
     function closeConfirm(restoreFocus = true) {
       if (!state.confirm || state.confirmClosing) return;
@@ -42432,6 +42545,7 @@
         state.confirmTimer = null;
         if (restoreFocus) state.confirmInvoker?.focus?.();
         state.confirmInvoker = null;
+        restoreConfirmPick();
         render();
       };
       const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -42451,6 +42565,7 @@
       state.confirm = null;
       state.confirmClosing = false;
       state.confirmInvoker = null;
+      restoreConfirmPick();
       if (pending.kind === "delete-current" && pending.targetId) {
         const id = pending.targetId;
         animateComposerOut(() => deleteAnnotation(id));
@@ -42596,6 +42711,14 @@
       openComposerForElement(target, anchor);
     }
     function onClick(event) {
+      if (!state.active && !state.confirm && state.visible && !state.selectedElement && !state.selectedElements.length) {
+        const target = event.target;
+        if (target && !isAnnotatorNode(target)) {
+          state.visible = false;
+          render();
+          return;
+        }
+      }
       if (!state.active || isControlUiEventTarget(event.target)) return;
       if (!shouldPreventUnderlyingAction()) return;
       event.preventDefault();
@@ -42682,6 +42805,13 @@
             });
             return;
           }
+          const row = target instanceof HTMLButtonElement || target.closest("button") ? null : target.closest?.("div.settings-row[data-action]");
+          if (row) {
+            event.preventDefault();
+            event.stopPropagation();
+            row.click();
+            return;
+          }
         }
       }
       if (event.key === "Escape") {
@@ -42697,7 +42827,7 @@
           requestCancelComposer();
           return;
         }
-        destroy();
+        collapseToolbar();
       }
     }
     function onKeyUp(event) {
@@ -42949,6 +43079,8 @@
       state.confirm = null;
       state.confirmClosing = false;
       state.confirmInvoker = null;
+      state.confirmResumePick = false;
+      state.structureAnimating = false;
       if (state.noticeTimer !== null) {
         window.clearTimeout(state.noticeTimer);
         state.noticeTimer = null;

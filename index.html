@@ -35,8 +35,7 @@
 
   <main id="top">
     <section class="hero shell">
-      <div class="eyebrow">Visual feedback for coding agents</div>
-      <h1>Point at the UI.<br />Tell your agent what to fix.</h1>
+      <h1>Visual feedback for coding agents</h1>
       <p class="hero-copy">
         Annote attaches your feedback to the actual interface — with DOM, React, CSS and motion context — then makes it available to your coding agent over MCP.
       </p>
@@ -108,12 +107,17 @@ When you are done, explain how I should use Annote, tell me anything I need to r
         </p>
 
         <div class="bookmarklet-wrap">
-          <a class="bookmarklet" data-bookmarklet href="#">
-            <img class="bookmarklet-logo" src="./favicon.svg" alt="" aria-hidden="true" />
-            <span>Annote</span>
-          </a>
-          <span class="drag-note">← drag to your bookmarks bar</span>
-          <button class="copy-button" type="button" data-copy-bookmarklet>Copy bookmarklet link</button>
+          <div class="bookmarklet-row">
+            <a class="bookmarklet" data-bookmarklet href="#">
+              <img class="bookmarklet-logo" src="./mark.svg" alt="" aria-hidden="true" />
+              <span>Annote</span>
+            </a>
+            <span class="drag-note">← drag to your bookmarks bar</span>
+          </div>
+          <div class="bookmarklet-or-row">
+            <span class="or-note">or</span>
+            <button class="copy-button" type="button" data-copy-bookmarklet>Copy bookmarklet link</button>
+          </div>
         </div>
 
         <p class="note">

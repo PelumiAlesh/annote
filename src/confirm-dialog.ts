@@ -30,5 +30,5 @@ export function confirmDialogContent(kind: ConfirmKind, details: { count?: numbe
   };
 }
 
-/** Initial focus is always Cancel — Enter must never confirm by accident. */
-export const CONFIRM_INITIAL_FOCUS = "cancel" as const;
+/** Initial focus is Delete — the user's explicit destructive intent opens it. */
+export const CONFIRM_INITIAL_FOCUS = "delete" as const;

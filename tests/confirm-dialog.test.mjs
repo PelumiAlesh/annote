@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { CONFIRM_INITIAL_FOCUS, confirmDialogContent } from "/tmp/feedback-mark-confirm-dialog.mjs";
-
 test("clear-all copy matches the approved wording", () => {
   const single = confirmDialogContent("clear-all", { count: 1 });
   assert.equal(single.title, "Delete all annotations?");
@@ -22,6 +21,6 @@ test("delete-current copy names the element when known", () => {
   assert.ok(unnamed.body.length > 0);
 });
 
-test("initial focus is Cancel so Enter cannot confirm by accident", () => {
-  assert.equal(CONFIRM_INITIAL_FOCUS, "cancel");
+test("initial focus is Delete per product decision", () => {
+  assert.equal(CONFIRM_INITIAL_FOCUS, "delete");
 });
