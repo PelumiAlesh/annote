@@ -34427,6 +34427,7 @@
       mcpSetupCopyState: "idle",
       annotations: [],
       hoverElement: null,
+      structurePreviewElement: null,
       selectedElement: null,
       selectedElements: [],
       selectionScope: "individual",
@@ -35948,6 +35949,8 @@
       state.composerPosition = null;
       state.composerAnchor = null;
       state.editingId = null;
+      state.structurePreviewElement = null;
+      updateStructurePreviewOverlay();
       state.cssOpen = false;
       state.styleEditorOpening = false;
       state.styleEditorClosing = false;
@@ -36635,6 +36638,15 @@
       .outline.selection-mode {
         border-color: #7dd3fc;
         background: rgba(125,211,252,.08);
+      }
+      .structure-preview-outline {
+        position: fixed;
+        border: 2px solid #7dd3fc;
+        background: rgba(125,211,252,.12);
+        border-radius: 4px;
+        pointer-events: none;
+        box-shadow: 0 0 0 1px #050505, 0 12px 34px rgba(0,0,0,.25);
+        transition: left 90ms ease, top 90ms ease, width 90ms ease, height 90ms ease;
       }
       .selection-outlines {
         position: fixed;
@@ -40940,6 +40952,7 @@
               </div>
               <span class="toolbar-tooltip-sizer" data-toolbar-tooltip-sizer aria-hidden="true"></span>`}
         <div class="outline hidden" data-hover-outline></div>
+        <div class="structure-preview-outline hidden" data-structure-preview-outline></div>
         <div class="selection-outlines" data-selection-outlines></div>
         <div class="label hidden" data-hover-label></div>
         ${markers}
@@ -41627,13 +41640,25 @@
           const selector2 = row.dataset.structureTarget;
           const el = selector2 ? resolveElement(selector2) : null;
           if (el && isStructureCandidate(el)) {
-            state.hoverElement = el;
-            updateHoverOverlay();
+            state.structurePreviewElement = el;
+            updateStructurePreviewOverlay();
           }
         });
         row.addEventListener("pointerleave", () => {
-          state.hoverElement = state.selectedElement;
-          updateHoverOverlay();
+          state.structurePreviewElement = null;
+          updateStructurePreviewOverlay();
+        });
+        row.addEventListener("focus", () => {
+          const selector2 = row.dataset.structureTarget;
+          const el = selector2 ? resolveElement(selector2) : null;
+          if (el && isStructureCandidate(el)) {
+            state.structurePreviewElement = el;
+            updateStructurePreviewOverlay();
+          }
+        });
+        row.addEventListener("blur", () => {
+          state.structurePreviewElement = null;
+          updateStructurePreviewOverlay();
         });
         row.addEventListener("click", (event) => {
           event.preventDefault();
@@ -41641,6 +41666,8 @@
           const selector2 = row.dataset.structureTarget;
           const target = selector2 ? resolveElement(selector2) : null;
           if (target && isStructureCandidate(target)) {
+            state.structurePreviewElement = null;
+            updateStructurePreviewOverlay();
             const anchor = { x: target.getBoundingClientRect().left + 20, y: target.getBoundingClientRect().top + 20 };
             state.selectedElements = [];
             updateSelectionOverlay();
@@ -41676,6 +41703,29 @@
       label.style.left = `${Math.min(innerWidth - 288, Math.max(8, rect.left))}px`;
       label.style.top = `${Math.max(24, rect.top - 6)}px`;
       label.textContent = uiElementLabel(target);
+    }
+    function updateStructurePreviewOverlay() {
+      const outline = state.shadow?.querySelector("[data-structure-preview-outline]");
+      if (!outline) return;
+      const target = state.structurePreviewElement;
+      if (!target || !target.isConnected || !isStructureCandidate(target)) {
+        outline.classList.add("hidden");
+        return;
+      }
+      if (target === state.selectedElement) {
+        outline.classList.add("hidden");
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) {
+        outline.classList.add("hidden");
+        return;
+      }
+      outline.classList.remove("hidden");
+      outline.style.left = `${rect.left}px`;
+      outline.style.top = `${rect.top}px`;
+      outline.style.width = `${rect.width}px`;
+      outline.style.height = `${rect.height}px`;
     }
     function updateSelectionOverlay() {
       const outlines = state.shadow?.querySelector("[data-selection-outlines]");
@@ -42024,6 +42074,8 @@
       render();
     }
     function openComposerForElement(target, anchor, selectedElements = []) {
+      state.structurePreviewElement = null;
+      updateStructurePreviewOverlay();
       const keepCssOpen = state.cssOpen && (!!state.draft?.styleEdits.length || state.selectedElement !== null || state.selectedElements.length > 1);
       const targetPath = selectorForElement(target);
       const duplicate = !selectedElements.length ? state.annotations.find((annotation) => {
@@ -42211,6 +42263,7 @@
         updateMarkerPositions();
         updateSelectionOverlay();
         updateHoverOverlay();
+        updateStructurePreviewOverlay();
         clampComposerToViewport();
       });
     }

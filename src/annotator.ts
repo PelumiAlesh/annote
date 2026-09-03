@@ -358,6 +358,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     mcpSetupCopyState: "idle" | "copied" | "failed";
     annotations: LiveAnnotation[];
     hoverElement: HTMLElement | null;
+    structurePreviewElement: HTMLElement | null;
     selectedElement: HTMLElement | null;
     selectedElements: HTMLElement[];
     selectionScope: "individual" | "parent";
@@ -424,6 +425,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     mcpSetupCopyState: "idle",
     annotations: [],
     hoverElement: null,
+    structurePreviewElement: null,
     selectedElement: null,
     selectedElements: [],
     selectionScope: "individual",
@@ -2172,6 +2174,8 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     state.composerPosition = null;
     state.composerAnchor = null;
     state.editingId = null;
+    state.structurePreviewElement = null;
+    updateStructurePreviewOverlay();
     state.cssOpen = false;
     state.styleEditorOpening = false;
     state.styleEditorClosing = false;
@@ -2911,6 +2915,15 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
       .outline.selection-mode {
         border-color: #7dd3fc;
         background: rgba(125,211,252,.08);
+      }
+      .structure-preview-outline {
+        position: fixed;
+        border: 2px solid #7dd3fc;
+        background: rgba(125,211,252,.12);
+        border-radius: 4px;
+        pointer-events: none;
+        box-shadow: 0 0 0 1px #050505, 0 12px 34px rgba(0,0,0,.25);
+        transition: left 90ms ease, top 90ms ease, width 90ms ease, height 90ms ease;
       }
       .selection-outlines {
         position: fixed;
@@ -7494,6 +7507,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
               <span class="toolbar-tooltip-sizer" data-toolbar-tooltip-sizer aria-hidden="true"></span>`
         }
         <div class="outline hidden" data-hover-outline></div>
+        <div class="structure-preview-outline hidden" data-structure-preview-outline></div>
         <div class="selection-outlines" data-selection-outlines></div>
         <div class="label hidden" data-hover-label></div>
         ${markers}
@@ -8223,13 +8237,25 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         const selector = row.dataset.structureTarget;
         const el = selector ? resolveElement(selector) : null;
         if (el && isStructureCandidate(el)) {
-          state.hoverElement = el;
-          updateHoverOverlay();
+          state.structurePreviewElement = el;
+          updateStructurePreviewOverlay();
         }
       });
       row.addEventListener("pointerleave", () => {
-        state.hoverElement = state.selectedElement;
-        updateHoverOverlay();
+        state.structurePreviewElement = null;
+        updateStructurePreviewOverlay();
+      });
+      row.addEventListener("focus", () => {
+        const selector = row.dataset.structureTarget;
+        const el = selector ? resolveElement(selector) : null;
+        if (el && isStructureCandidate(el)) {
+          state.structurePreviewElement = el;
+          updateStructurePreviewOverlay();
+        }
+      });
+      row.addEventListener("blur", () => {
+        state.structurePreviewElement = null;
+        updateStructurePreviewOverlay();
       });
       row.addEventListener("click", (event) => {
         event.preventDefault();
@@ -8237,6 +8263,8 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
         const selector = row.dataset.structureTarget;
         const target = selector ? resolveElement(selector) : null;
         if (target && isStructureCandidate(target)) {
+          state.structurePreviewElement = null;
+          updateStructurePreviewOverlay();
           const anchor = { x: target.getBoundingClientRect().left + 20, y: target.getBoundingClientRect().top + 20 };
           state.selectedElements = [];
           updateSelectionOverlay();
@@ -8274,6 +8302,30 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
     label.style.left = `${Math.min(innerWidth - 288, Math.max(8, rect.left))}px`;
     label.style.top = `${Math.max(24, rect.top - 6)}px`;
     label.textContent = uiElementLabel(target);
+  }
+
+  function updateStructurePreviewOverlay(): void {
+    const outline = state.shadow?.querySelector<HTMLElement>("[data-structure-preview-outline]");
+    if (!outline) return;
+    const target = state.structurePreviewElement;
+    if (!target || !target.isConnected || !isStructureCandidate(target)) {
+      outline.classList.add("hidden");
+      return;
+    }
+    if (target === state.selectedElement) {
+      outline.classList.add("hidden");
+      return;
+    }
+    const rect = target.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) {
+      outline.classList.add("hidden");
+      return;
+    }
+    outline.classList.remove("hidden");
+    outline.style.left = `${rect.left}px`;
+    outline.style.top = `${rect.top}px`;
+    outline.style.width = `${rect.width}px`;
+    outline.style.height = `${rect.height}px`;
   }
 
   function updateSelectionOverlay(): void {
@@ -8669,6 +8721,8 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
   }
 
   function openComposerForElement(target: HTMLElement, anchor: { x: number; y: number }, selectedElements: HTMLElement[] = []): void {
+    state.structurePreviewElement = null;
+    updateStructurePreviewOverlay();
     const keepCssOpen = state.cssOpen && (!!state.draft?.styleEdits.length || state.selectedElement !== null || state.selectedElements.length > 1);
     const targetPath = selectorForElement(target);
     const duplicate = !selectedElements.length
@@ -8874,6 +8928,7 @@ import type { AnnoteBridgeEventDTO } from "../packages/protocol/src/index";
       updateMarkerPositions();
       updateSelectionOverlay();
       updateHoverOverlay();
+      updateStructurePreviewOverlay();
       clampComposerToViewport();
     });
   }
