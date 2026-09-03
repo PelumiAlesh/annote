@@ -38871,9 +38871,12 @@
         .panel { right: 62px; width: min(289px, calc(100vw - 78px)); }
       }
       .structure-section {
-        margin-top: 12px;
-        border-top: 1px solid rgba(255,255,255,.08);
-        padding: 10px 0 0;
+        margin-top: 8px;
+        background: rgba(255,255,255,.03);
+        border: 1px solid rgba(255,255,255,.06);
+        border-radius: 6px;
+        padding: 6px 0;
+        overflow: hidden;
       }
       .structure-header {
         display: flex;
@@ -38915,7 +38918,7 @@
         grid-template-rows: 1fr;
         opacity: 1;
         transition: grid-template-rows 220ms cubic-bezier(.2,.8,.2,1), opacity 180ms ease;
-        margin-top: 8px;
+        margin-top: 6px;
         padding: 0 9px;
       }
       .structure-body.collapsed {
@@ -38926,16 +38929,19 @@
       .structure-body-inner {
         overflow: hidden;
         display: grid;
-        gap: 10px;
+        gap: 8px;
       }
       .structure-group {
         display: grid;
-        gap: 6px;
+        gap: 4px;
         padding: 8px 0 0;
         border-top: 1px solid rgba(255,255,255,.06);
       }
       .structure-group:first-child { padding-top: 0; border-top: 0; }
       .structure-label {
+        display: flex;
+        align-items: center;
+        min-height: 20px;
         color: rgba(255,255,255,.45);
         font-size: 10px;
         text-transform: uppercase;
@@ -38947,7 +38953,7 @@
         align-items: center;
         gap: 6px;
         width: 100%;
-        min-height: 20px;
+        min-height: 22px;
         border: 0;
         background: transparent;
         color: rgba(255,255,255,.45);
@@ -38976,16 +38982,16 @@
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
-        padding: 2px 0;
+        padding: 2px 0 6px;
       }
       .structure-row {
         display: inline-flex;
         align-items: center;
         gap: 6px;
         min-height: 22px;
-        padding: 2px 8px;
-        border-radius: 999px;
-        background: rgba(255,255,255,.06);
+        padding: 3px 8px;
+        border-radius: 6px;
+        background: rgba(255,255,255,.08);
         color: rgba(255,255,255,.85);
         font-size: 11px;
         cursor: pointer;
@@ -38994,10 +39000,11 @@
         width: fit-content;
         max-width: 100%;
       }
-      .structure-row:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.08); }
-      .structure-row.selected { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.14); }
-      .structure-row.is-parent { background: transparent; border-color: rgba(255,255,255,.06); color: rgba(255,255,255,.72); }
-      .structure-row.is-parent:hover { background: rgba(255,255,255,.06); }
+      .structure-row:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.1); }
+      .structure-row.selected { background: #fff; color: #111; border-color: #fff; }
+      .structure-row.selected .secondary { color: rgba(17,17,17,.55); }
+      .structure-row.is-parent { background: rgba(255,255,255,.08); color: rgba(255,255,255,.85); }
+      .structure-row.is-parent:hover { background: rgba(255,255,255,.12); }
       .structure-row .primary { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .structure-row .secondary {
         color: rgba(255,255,255,.45);
@@ -40004,11 +40011,11 @@
       <div class="structure-body ${isOpen ? "" : "collapsed"}">
         <div class="structure-body-inner">
           <div class="structure-group">
-            <div class="structure-label">\u2191 Parent</div>
+            <div class="structure-label">Parent</div>
             ${parentRow}
           </div>
           <div class="structure-group">
-            <div class="structure-label">\u25CF Selected</div>
+            <div class="structure-label">Selected</div>
             ${selectedRow}
           </div>
           <div class="structure-group">
