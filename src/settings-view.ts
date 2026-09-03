@@ -55,6 +55,7 @@ export function renderSettingsRoot(data: SettingsViewData): string {
           ${renderSettingsToggle(data, "pauseAnimationOnSelect", "Pause animation on select", "Pause active motion when you select it.")}
           ${renderSettingsToggle(data, "clearAfterSend", "Clear after send", "Remove submitted annotations after sending.")}
           ${renderSettingsToggle(data, "preventPageActions", "Prevent page interactions while annotating", "Prevent clicks and hover interactions while selecting elements.")}
+          ${renderSettingsToggle(data, "continuousDictation", "Keep listening", "Keep the microphone open through pauses instead of stopping at the first silence.")}
         </section>
         <section class="settings-section" aria-label="Context">
           ${renderSettingsToggle(data, "reactContext", "React context", "Include component and source context when available.")}

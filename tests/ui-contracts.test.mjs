@@ -74,7 +74,7 @@ test("notice/toast contract", () => {
 test("a11y chrome contract", () => {
   assert.ok(src.includes(":focus-visible"), "focus-visible missing");
   assert.ok(src.includes("prefers-reduced-motion"), "reduced-motion missing");
-  assert.ok(src.includes('aria-hidden="true" data-mic-affordance'), "mic must be visual-only");
+  assert.ok(src.includes('aria-label="Start dictation"'), "mic must be a labelled button");
   assert.ok(!src.includes("<span class=\"settings-help-tip\""), "span help-tip back");
   assert.ok(src.includes("scrubberKeyStep"), "slider keyboard missing");
   assert.ok(src.includes("[data-action='open-toolbar']"), "launcher keyboard missing");
@@ -147,4 +147,33 @@ test("collapsed launcher carries the annotation count", () => {
 test("truncated property labels expose full names", () => {
   assert.ok(src.includes('".css-name > span"'), "truncation pass missing");
   assert.ok(src.includes("scrollWidth"), "overflow check missing");
+});
+
+test("voice dictation uses real buttons and handled actions", () => {
+  assert.ok(src.includes('aria-label="Start dictation"'), "mic label missing");
+  assert.ok(src.includes('aria-label="Cancel dictation"'), "voice cancel label missing");
+  assert.ok(src.includes('aria-label="Stop recording"'), "stop label missing");
+  assert.ok(!src.includes("data-mic-affordance"), "inert mic span back");
+  for (const action of ["dictation-mic", "dictation-cancel", "dictation-stop"]) {
+    assert.ok(src.includes(`action === "${action}"`), `${action} unhandled`);
+  }
+});
+
+test("dictation locks commit paths and cleans up", () => {
+  assert.ok(src.includes("dictationActive()) return;"), "submit/undo guard missing");
+  assert.ok(src.includes("cleanupDictation()"), "cleanup missing");
+  assert.ok(src.includes("getUserMedia({ audio: true })"), "mic-only capture missing");
+  assert.ok(!src.includes("getDisplayMedia"), "screen capture present");
+});
+
+test("footer groups keep commit anchored right", () => {
+  assert.ok(src.includes("footer-group footer-left"), "left group missing");
+  assert.ok(src.includes("footer-group footer-right"), "right group missing");
+  assert.ok(src.includes("footer-delete-gap"), "delete gap missing");
+});
+
+test("dictation chrome stays quiet", () => {
+  assert.ok(src.includes(".dictation-x {"), "x rule missing");
+  assert.ok(src.includes(".footer-mic::after"), "footer mic hit area missing");
+  assert.ok(src.includes("align-self: flex-start"), "toggle top alignment missing");
 });

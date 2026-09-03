@@ -3,6 +3,7 @@ export type AnnoteSettings = {
   clearAfterSend: boolean;
   preventPageActions: boolean;
   reactContext: boolean;
+  continuousDictation: boolean;
 };
 
 export type FeedbackMarkSettings = AnnoteSettings;
@@ -15,6 +16,7 @@ export const DEFAULT_SETTINGS: AnnoteSettings = {
   clearAfterSend: false,
   preventPageActions: true,
   reactContext: true,
+  continuousDictation: false,
 };
 
 type SettingsStorage = Pick<Storage, "getItem" | "setItem">;
@@ -35,6 +37,9 @@ export function normalizeSettings(value: unknown): AnnoteSettings {
       ? raw.preventPageActions
       : DEFAULT_SETTINGS.preventPageActions,
     reactContext: isBoolean(raw.reactContext) ? raw.reactContext : DEFAULT_SETTINGS.reactContext,
+    continuousDictation: isBoolean(raw.continuousDictation)
+      ? raw.continuousDictation
+      : DEFAULT_SETTINGS.continuousDictation,
   };
 }
 

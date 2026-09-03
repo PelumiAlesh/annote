@@ -32734,6 +32734,56 @@
   }
   var CONFIRM_INITIAL_FOCUS = "delete";
 
+  // src/dictation.ts
+  function composerControls(input) {
+    const { expanded, isExisting, hasText, dictation, micSupported } = input;
+    if (dictation === "listening") {
+      return {
+        top: ["voice-cancel", "waveform", "stop"],
+        footerLeft: expanded ? ["cancel", "undo", ...isExisting ? ["delete"] : []] : null,
+        footerRight: expanded ? ["save"] : null,
+        saveDisabled: true
+      };
+    }
+    if (dictation === "transcribing") {
+      return {
+        top: ["voice-cancel", "transcribing"],
+        footerLeft: expanded ? ["cancel", "undo", ...isExisting ? ["delete"] : []] : null,
+        footerRight: expanded ? ["save"] : null,
+        saveDisabled: true
+      };
+    }
+    const mic = micSupported ? ["mic"] : [];
+    return {
+      top: expanded ? ["input"] : ["input", ...mic, ...hasText ? ["send"] : []],
+      footerLeft: expanded ? ["cancel", "undo", ...isExisting ? ["delete"] : []] : null,
+      footerRight: expanded ? [...micSupported ? ["mic"] : [], "save"] : null,
+      saveDisabled: false
+    };
+  }
+  function mergeTranscript(existing, transcript) {
+    const clean = transcript.replace(/\s+/g, " ").trim();
+    if (!clean) return existing;
+    if (!existing.trim()) return clean;
+    return `${existing.trimEnd()} ${clean}`;
+  }
+  function dictationErrorCopy(kind) {
+    if (kind === "denied") return "Microphone access denied.";
+    if (kind === "unavailable") return "Microphone unavailable.";
+    if (kind === "no-speech") return "No speech detected.";
+    if (kind === "network") return "Transcription unavailable. Check your connection.";
+    return "Couldn\u2019t transcribe that.";
+  }
+  function probeDictationSupport(caps) {
+    return !!caps.speechRecognition && typeof caps.getUserMedia === "function";
+  }
+  function probeBrowserDictationSupport() {
+    const w2 = window;
+    const SR = w2.SpeechRecognition ?? w2.webkitSpeechRecognition;
+    const getUserMedia = navigator?.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
+    return probeDictationSupport({ speechRecognition: SR, getUserMedia });
+  }
+
   // src/shortcuts.ts
   function isMacPlatform(platform) {
     return /mac/i.test(platform || "");
@@ -32790,6 +32840,7 @@
           ${renderSettingsToggle(data, "pauseAnimationOnSelect", "Pause animation on select", "Pause active motion when you select it.")}
           ${renderSettingsToggle(data, "clearAfterSend", "Clear after send", "Remove submitted annotations after sending.")}
           ${renderSettingsToggle(data, "preventPageActions", "Prevent page interactions while annotating", "Prevent clicks and hover interactions while selecting elements.")}
+          ${renderSettingsToggle(data, "continuousDictation", "Keep listening", "Keep the microphone open through pauses instead of stopping at the first silence.")}
         </section>
         <section class="settings-section" aria-label="Context">
           ${renderSettingsToggle(data, "reactContext", "React context", "Include component and source context when available.")}
@@ -34206,7 +34257,8 @@
     pauseAnimationOnSelect: true,
     clearAfterSend: false,
     preventPageActions: true,
-    reactContext: true
+    reactContext: true,
+    continuousDictation: false
   };
   function isBoolean(value) {
     return typeof value === "boolean";
@@ -34218,7 +34270,8 @@
       pauseAnimationOnSelect: isBoolean(raw.pauseAnimationOnSelect) ? raw.pauseAnimationOnSelect : DEFAULT_SETTINGS.pauseAnimationOnSelect,
       clearAfterSend: isBoolean(raw.clearAfterSend) ? raw.clearAfterSend : DEFAULT_SETTINGS.clearAfterSend,
       preventPageActions: isBoolean(raw.preventPageActions) ? raw.preventPageActions : DEFAULT_SETTINGS.preventPageActions,
-      reactContext: isBoolean(raw.reactContext) ? raw.reactContext : DEFAULT_SETTINGS.reactContext
+      reactContext: isBoolean(raw.reactContext) ? raw.reactContext : DEFAULT_SETTINGS.reactContext,
+      continuousDictation: isBoolean(raw.continuousDictation) ? raw.continuousDictation : DEFAULT_SETTINGS.continuousDictation
     };
   }
   function loadSettings(storage = localStorage) {
@@ -34843,6 +34896,8 @@
       notice: "",
       noticeKind: "info",
       noticeTimer: null,
+      dictation: { status: "idle", error: null },
+      micSupported: false,
       shadowClickBound: false,
       colorisInput: null,
       mcpClient: null,
@@ -34973,6 +35028,272 @@
     function noticeHtml() {
       if (!state.notice) return "";
       return `<div class="notice ${state.noticeKind === "error" ? "notice-error" : ""}" role="status">${escapeHtml(state.notice)}</div>`;
+    }
+    function autogrowComposerTextarea(textarea) {
+      const input = textarea || state.shadow?.querySelector("[data-composer] textarea");
+      if (!input) return;
+      const form = input.closest("[data-composer]");
+      const bar = input.closest(".composer-bar");
+      const cs = getComputedStyle(input);
+      const lineHeight = parseFloat(cs.lineHeight) || 16;
+      const padding = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+      input.style.height = "auto";
+      let lines;
+      if (form?.classList.contains("multiline") && bar) {
+        const toggle2 = bar.querySelector(".css-toggle");
+        const narrow = Math.max(80, bar.clientWidth - (toggle2?.offsetWidth ?? 0) - 18);
+        input.style.flex = `0 0 ${narrow}px`;
+        lines = (input.scrollHeight - padding) / lineHeight;
+        input.style.flex = "";
+      } else {
+        lines = (input.scrollHeight - padding) / lineHeight;
+      }
+      form?.classList.toggle("multiline", lines > 1.3);
+      input.style.height = `${Math.min(input.scrollHeight, 160 + padding)}px`;
+    }
+    let dictationSession = null;
+    function dictationActive() {
+      return state.dictation.status === "listening" || state.dictation.status === "transcribing";
+    }
+    function teardownDictationAudio() {
+      const session = dictationSession;
+      if (!session) return;
+      if (session.raf !== null) {
+        cancelAnimationFrame(session.raf);
+        session.raf = null;
+      }
+      try {
+        session.stream?.getTracks().forEach((track) => track.stop());
+      } catch {
+      }
+      session.stream = null;
+      session.analyser = null;
+      if (session.audioCtx) {
+        const ctx = session.audioCtx;
+        session.audioCtx = null;
+        void ctx.close().catch(() => void 0);
+      }
+    }
+    function abortDictationAttempt() {
+      const session = dictationSession;
+      if (session) {
+        session.settled = true;
+        try {
+          session.recognition?.abort();
+        } catch {
+        }
+        session.recognition = null;
+      }
+      teardownDictationAudio();
+    }
+    function cleanupDictation() {
+      abortDictationAttempt();
+      dictationSession = null;
+      if (state.dictation.status !== "idle" || state.dictation.error) {
+        state.dictation = { status: "idle", error: null };
+      }
+    }
+    function drawWaveform(canvas, levels, live) {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+      const bars = 28;
+      const gap = 3;
+      const barWidth = (width - gap * (bars - 1)) / bars;
+      ctx.fillStyle = "rgba(255,255,255,.55)";
+      for (let i2 = 0; i2 < bars; i2 += 1) {
+        const level = levels[i2] ?? 0.04;
+        const barHeight = Math.max(2, level * height);
+        const x2 = i2 * (barWidth + gap);
+        const y3 = (height - barHeight) / 2;
+        ctx.beginPath();
+        ctx.roundRect(x2, y3, barWidth, barHeight, barWidth / 2);
+        ctx.fill();
+      }
+      if (!live) {
+        ctx.fillStyle = "rgba(255,255,255,.25)";
+        ctx.fillRect(0, 0, width, height);
+      }
+    }
+    function startWaveformLoop(canvas) {
+      const session = dictationSession;
+      if (!session || !session.analyser) return;
+      const analyser = session.analyser;
+      const data = new Uint8Array(analyser.fftSize);
+      const reduced = prefersReducedMotion();
+      const tick = () => {
+        const active = dictationSession === session && state.dictation.status === "listening";
+        if (!active) return;
+        const now = performance.now();
+        const gate = reduced ? 250 : 66;
+        if (now - session.lastDrawn >= gate) {
+          session.lastDrawn = now;
+          analyser.getByteTimeDomainData(data);
+          let sum = 0;
+          for (let i2 = 0; i2 < data.length; i2 += 1) {
+            const v3 = (data[i2] - 128) / 128;
+            sum += v3 * v3;
+          }
+          const rms = Math.min(1, Math.sqrt(sum / data.length) * 3.2);
+          if (reduced) {
+            session.levels = [rms];
+            drawWaveform(canvas, session.levels, false);
+          } else {
+            const previous = session.levels.length ? session.levels[session.levels.length - 1] : rms;
+            const smoothed = previous * 0.55 + rms * 0.45;
+            session.levels.push(smoothed);
+            if (session.levels.length > 28) session.levels.shift();
+            drawWaveform(canvas, session.levels, true);
+          }
+        }
+        session.raf = requestAnimationFrame(tick);
+      };
+      session.raf = requestAnimationFrame(tick);
+    }
+    function setDictationError(kind) {
+      abortDictationAttempt();
+      dictationSession = null;
+      state.dictation = { status: "idle", error: kind };
+      state.focusComposerOnRender = true;
+      render();
+    }
+    function finishDictation(transcript) {
+      const session = dictationSession;
+      const base = session?.baseComment ?? "";
+      abortDictationAttempt();
+      dictationSession = null;
+      if (state.draft) state.draft.comment = mergeTranscript(base, transcript);
+      state.dictation = { status: "idle", error: null };
+      state.focusComposerOnRender = true;
+      render();
+      syncComposerSubmitState();
+    }
+    async function startDictation() {
+      if (state.dictation.status !== "idle" || !state.draft || !state.micSupported) return;
+      const baseComment = state.draft.comment;
+      state.dictation = { status: "listening", error: null };
+      state.focusComposerOnRender = false;
+      dictationSession = {
+        recognition: null,
+        stream: null,
+        audioCtx: null,
+        analyser: null,
+        raf: null,
+        levels: [],
+        baseComment,
+        stopRequested: false,
+        settled: false,
+        restarts: 0,
+        lastEndAt: 0,
+        lastDrawn: 0
+      };
+      render();
+      requestAnimationFrame(() => {
+        state.shadow?.querySelector("[data-dictation-stop]")?.focus();
+      });
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!dictationSession || dictationSession.settled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        const AudioCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtor) throw new DOMException("audio unavailable", "NotSupportedError");
+        const audioCtx = new AudioCtor();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        dictationSession.stream = stream;
+        dictationSession.audioCtx = audioCtx;
+        dictationSession.analyser = analyser;
+        const canvas = state.shadow?.querySelector("[data-wave]");
+        if (canvas) startWaveformLoop(canvas);
+        const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+        if (!SR) throw new DOMException("recognition unavailable", "NotSupportedError");
+        const recognition = new SR();
+        recognition.continuous = state.settings.continuousDictation;
+        recognition.interimResults = false;
+        recognition.lang = navigator.language || "en-US";
+        let finalTranscript = "";
+        recognition.onresult = (event) => {
+          const results = event.results;
+          if (!results) return;
+          for (let i2 = 0; i2 < results.length; i2 += 1) {
+            const alternative = results[i2]?.[0];
+            if (alternative?.transcript) finalTranscript += alternative.transcript;
+          }
+        };
+        recognition.onerror = (event) => {
+          if (!dictationSession || dictationSession.settled) return;
+          const code2 = event.error || "";
+          if (code2 === "not-allowed" || code2 === "service-not-allowed") setDictationError("denied");
+          else if (code2 === "audio-capture") setDictationError("unavailable");
+          else if (code2 === "network") setDictationError("network");
+          else if (code2 === "no-speech") setDictationError("no-speech");
+          else if (code2 === "aborted") cleanupDictation();
+          else setDictationError("recognition");
+        };
+        recognition.onend = () => {
+          const session = dictationSession;
+          if (!session || session.settled) return;
+          const done = (withTranscript) => {
+            session.settled = true;
+            if (withTranscript && finalTranscript.trim()) finishDictation(finalTranscript);
+            else setDictationError("no-speech");
+          };
+          if (session.stopRequested || !state.settings.continuousDictation || state.dictation.status !== "listening") {
+            done(true);
+            return;
+          }
+          const now = Date.now();
+          session.restarts = now - session.lastEndAt < 1e3 ? session.restarts + 1 : 0;
+          session.lastEndAt = now;
+          if (session.restarts > 3) {
+            done(true);
+            return;
+          }
+          try {
+            session.recognition?.start();
+          } catch {
+            done(true);
+          }
+        };
+        dictationSession.recognition = recognition;
+        recognition.start();
+      } catch (error) {
+        if (!dictationSession) return;
+        const name50 = error?.name;
+        const code2 = typeof name50 === "string" ? name50 : "";
+        if (code2 === "NotAllowedError" || code2 === "SecurityError") setDictationError("denied");
+        else if (code2 === "NotFoundError" || code2 === "OverconstrainedError" || code2 === "NotReadableError") setDictationError("unavailable");
+        else setDictationError("recognition");
+      }
+    }
+    function cancelDictationAttempt() {
+      const session = dictationSession;
+      const base = session?.baseComment;
+      abortDictationAttempt();
+      dictationSession = null;
+      if (state.draft && base !== void 0) state.draft.comment = base;
+      state.dictation = { status: "idle", error: null };
+      state.focusComposerOnRender = true;
+      render();
+      syncComposerSubmitState();
+    }
+    function stopDictationInput() {
+      const session = dictationSession;
+      if (!session || state.dictation.status !== "listening") return;
+      session.stopRequested = true;
+      state.dictation = { status: "transcribing", error: null };
+      render();
+      try {
+        session.recognition?.stop();
+      } catch {
+        setDictationError("recognition");
+      }
     }
     function ensureColorisTheme() {
       if (document.getElementById(COLORIS_STYLE_ID)) return;
@@ -36337,6 +36658,7 @@
       syncComposerSubmitState();
     }
     function clearComposerState() {
+      cleanupDictation();
       reactSourceCoordinator.cancel();
       stopMotionReadoutLoop();
       restoreSelectionPausedAnimations();
@@ -37297,11 +37619,11 @@
         flex: 1 1 auto;
       }
       .css-toggle {
-        flex: 0 0 28px;
-        width: 28px;
-        height: 28px;
-        min-width: 28px;
-        min-height: 28px;
+        flex: 0 0 30px;
+        width: 30px;
+        height: 30px;
+        min-width: 30px;
+        min-height: 30px;
         border: 0;
         border-radius: 6px;
         background: transparent;
@@ -37343,19 +37665,32 @@
       .composer-bar {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 6px;
         min-height: 36px;
       }
+      .composer.multiline .composer-bar > .css-toggle {
+        align-self: flex-start;
+      }
+      .composer-bar-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .composer.multiline .composer-bar-actions {
+        flex: 1 1 100%;
+        display: flex;
+        justify-content: flex-end;
+      }
       .composer-bar textarea {
-        flex: 1 1 auto;
+        flex: 1 1 0%;
         min-width: 0;
         min-height: 32px;
-        max-height: 92px;
+        max-height: 160px;
         padding: 7px 8px;
         transition: flex-basis 220ms cubic-bezier(.2,.8,.2,1), min-height 220ms cubic-bezier(.2,.8,.2,1);
       }
-      .submit-icon,
-      .mic-affordance {
+      .submit-icon {
         flex: 0 0 30px;
         width: 30px;
         min-width: 30px;
@@ -37380,11 +37715,107 @@
         pointer-events: none;
         border-width: 0;
       }
-      .mic-affordance {
-        pointer-events: none;
-        color: rgba(255,255,255,.42);
+      .mic-btn {
+        color: rgba(255,255,255,.75);
         background: transparent;
         border-color: transparent;
+      }
+      .dictation-row {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 36px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .dictation-wave {
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: 100%;
+        height: 36px;
+      }
+      .dictation-x {
+        flex: 0 0 auto;
+        border-color: transparent;
+        background: transparent;
+      }
+      .dictation-x:hover {
+        border-color: transparent;
+        background: rgba(255,255,255,.08);
+      }
+      .dictation-stop {
+        flex: 0 0 auto;
+        background: rgba(255,255,255,.14);
+        border-color: transparent;
+        color: #fff;
+      }
+      .dictation-stop:hover {
+        background: rgba(255,255,255,.2);
+        border-color: transparent;
+        transform: none;
+      }
+      .dictation-stop svg {
+        fill: #fff;
+      }
+      .mic-btn:hover,
+      .footer-mic:hover,
+      .dictation-x:hover {
+        transform: none;
+        background: transparent;
+        border-color: transparent;
+      }
+      .footer-mic {
+        min-width: 30px;
+        min-height: 30px;
+        width: 30px;
+        height: 30px;
+        position: relative;
+        color: rgba(255,255,255,.75);
+        background: transparent;
+        border-color: transparent;
+      }
+      .footer-mic::after {
+        content: "";
+        position: absolute;
+        inset: -6px;
+      }
+      .transcribing {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: rgba(255,255,255,.66);
+        font-size: 12px;
+      }
+      .pulse-dot {
+        width: 8px;
+        height: 8px;
+        flex: 0 0 8px;
+        border-radius: 999px;
+        background: var(--fm-orange);
+        animation: fm-pulse 1200ms ease-in-out infinite;
+      }
+      @keyframes fm-pulse {
+        0%, 100% { opacity: .35; transform: scale(.85); }
+        50% { opacity: 1; transform: scale(1.1); }
+      }
+      .dictation-error {
+        color: #f97066;
+        font-size: 11px;
+        padding: 6px 2px 0;
+      }
+      .composer-actions {
+        flex-wrap: wrap;
+        row-gap: 8px;
+      }
+      .footer-group {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .footer-delete-gap {
+        width: 4px;
       }
       textarea:focus, select:focus, input:focus {
         outline: none;
@@ -39725,6 +40156,7 @@
         replay: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/>',
         settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>',
         sliders: '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/>',
+        stop: '<rect x="7" y="7" width="10" height="10" rx="2"/>',
         "side-bottom": '<path d="M6 18h12"/><path d="M12 6v8"/><path d="m8 10 4 4 4-4"/>',
         "side-left": '<path d="M6 6v12"/><path d="M18 12H10"/><path d="m14 8-4 4 4 4"/>',
         "side-right": '<path d="M18 6v12"/><path d="M6 12h8"/><path d="m10 8 4 4-4 4"/>',
@@ -40572,26 +41004,46 @@
     function renderComposer(composerTarget, composerPosition, editingAnnotation) {
       const draft = state.draft;
       const meaningful = draftIsMeaningful();
-      const currentPromptHasText = !!(draft?.comment.trim() || !draft && editingAnnotation?.comment.trim());
-      const showMicAffordance = !meaningful && !currentPromptHasText;
-      const showCompactSubmit = meaningful || !!editingAnnotation && currentPromptHasText;
+      const controls = composerControls({
+        expanded: state.cssOpen,
+        isExisting: !!editingAnnotation,
+        hasText: !!(draft?.comment.trim() || editingAnnotation?.comment.trim()),
+        dictation: state.dictation.status,
+        micSupported: state.micSupported
+      });
+      const dictating = state.dictation.status !== "idle";
+      const showTopMic = controls.top.includes("mic");
+      const showTopSend = controls.top.includes("send");
       const entering = state.focusComposerOnRender ? "entering" : "";
       const submitLabel = editingAnnotation ? "Save" : "Add";
       const showStyleEditor = state.cssOpen || state.styleEditorClosing;
+      const topField = state.dictation.status === "listening" ? `<div class="dictation-row" role="group" aria-label="Dictating">
+          <button class="icon-btn dictation-x" data-action="dictation-cancel" data-dictation-cancel type="button" aria-label="Cancel dictation">${icon("cross")}</button>
+          <canvas class="dictation-wave" data-wave width="160" height="36" role="img" aria-label="Listening, microphone level"></canvas>
+          <button class="icon-btn dictation-stop" data-action="dictation-stop" data-dictation-stop type="button" aria-label="Stop recording">${icon("stop")}</button>
+        </div>` : state.dictation.status === "transcribing" ? `<div class="dictation-row" role="group" aria-label="Transcribing">
+          <button class="icon-btn dictation-x" data-action="dictation-cancel" data-dictation-cancel type="button" aria-label="Cancel dictation">${icon("cross")}</button>
+          <span class="transcribing" role="status"><span class="pulse-dot" aria-hidden="true"></span>Transcribing\u2026</span>
+        </div>` : `<textarea name="comment" placeholder="${state.cssOpen ? "Describe these changes..." : "Add a comment..."}" rows="1">${escapeHtml(draft?.comment ?? editingAnnotation?.comment ?? "")}</textarea>
+        ${showTopMic || !state.cssOpen ? `<span class="composer-bar-actions">${showTopMic ? `<button class="icon-btn mic-btn" data-action="dictation-mic" type="button" aria-label="Start dictation">${icon("mic")}</button>` : ""}${!state.cssOpen ? `<button class="icon-btn primary submit-icon ${showTopSend && meaningful ? "" : "hidden"}" aria-label="${submitLabel} annotation" type="submit" data-composer-submit ${meaningful ? "" : "disabled"}>${icon("check")}</button>` : ""}</span>` : ""}`;
       return `<form class="composer ${entering} ${showStyleEditor ? "expanded" : ""} ${composerPosition.opensUp ? "opens-up" : ""} ${state.composerShake ? "shake" : ""}" data-composer data-placement="${composerPosition.opensUp ? "above" : "below"}" style="left:${composerPosition.left}px;${composerPosition.opensUp ? `bottom:${composerPosition.bottom}px` : `top:${composerPosition.top}px`}">
       <div class="composer-bar">
         <button class="icon-btn css-toggle ${state.cssOpen ? "open" : ""} ${state.styleEditorClosing ? "closing" : ""}" data-action="toggle-css" type="button" aria-label="${state.cssOpen ? "Hide" : "Show"} element CSS" aria-expanded="${state.cssOpen}" aria-controls="feedback-mark-element-css">${icon("paint")}</button>
-        <textarea name="comment" placeholder="${state.cssOpen ? "Describe these changes..." : "Add a comment..."}" rows="1">${escapeHtml(draft?.comment ?? editingAnnotation?.comment ?? "")}</textarea>
-        <span class="icon-btn mic-affordance ${showMicAffordance ? "" : "hidden"}" aria-hidden="true" data-mic-affordance>${icon("mic")}</span>
-        <button class="icon-btn primary submit-icon ${showCompactSubmit ? "" : "hidden"}" aria-label="${submitLabel} annotation" type="submit" data-composer-submit ${meaningful ? "" : "disabled"}>${icon("check")}</button>
+        ${topField}
       </div>
+      ${state.dictation.error && !dictating ? `<div class="dictation-error" role="status">${escapeHtml(dictationErrorCopy(state.dictation.error))}</div>` : ""}
       ${showStyleEditor ? `<div class="composer-context">${renderStyleEditor()}</div>` : ""}
       ${state.cssOpen ? `<div class="row composer-actions">
-              ${editingAnnotation ? iconButton("delete-current", "Delete annotation", "trash", "borderless delete-current") : ""}
-              ${textButton("undo-edit", "Undo", "ghost compact", "button", `${draft?.undoStack.length ? "" : "disabled"}`)}
+              <span class="footer-group footer-left">
+                ${textButton("cancel-compose", "Cancel", "compact", "button", "")}
+                ${textButton("undo-edit", "Undo", "ghost compact", "button", `${!dictating && draft?.undoStack.length ? "" : "disabled"}`)}
+                ${editingAnnotation ? `<span class="footer-delete-gap" aria-hidden="true"></span>${iconButton("delete-current", "Delete annotation", "trash", "borderless delete-current", dictating ? "disabled" : "")}` : ""}
+              </span>
               <span class="composer-action-spacer"></span>
-              ${textButton("cancel-compose", "Cancel", "ghost compact")}
-              ${textButton("", submitLabel, "primary compact", "submit", `data-composer-submit ${meaningful ? "" : "disabled"}`)}
+              <span class="footer-group footer-right">
+                ${controls.footerRight?.includes("mic") ? `<button class="icon-btn footer-mic" data-action="dictation-mic" type="button" aria-label="Start dictation">${icon("mic")}</button>` : ""}
+                ${textButton("", submitLabel, "primary compact", "submit", `data-composer-submit ${!controls.saveDisabled && meaningful ? "" : "disabled"}`)}
+              </span>
             </div>` : ""}
     </form>`;
     }
@@ -40697,17 +41149,16 @@
       const composer = root?.querySelector("[data-composer]");
       if (!root || !composer) return;
       const meaningful = draftIsMeaningful();
-      const editingAnnotation = state.editingId ? state.annotations.find((annotation) => annotation.id === state.editingId) : null;
-      const existingPromptHasText = !!editingAnnotation && !!(state.draft?.comment.trim() || editingAnnotation.comment.trim());
-      const showMicAffordance = !meaningful && !existingPromptHasText;
-      const showCompactSubmit = meaningful || existingPromptHasText;
-      composer.querySelector("[data-mic-affordance]")?.classList.toggle("hidden", !showMicAffordance);
+      const locked = dictationActive();
+      const hasText = !!state.draft?.comment.trim();
       composer.querySelectorAll("[data-composer-submit]").forEach((button) => {
-        button.disabled = !meaningful;
-        button.classList.toggle("hidden", !showCompactSubmit && button.classList.contains("submit-icon"));
+        button.disabled = !meaningful || locked;
+        if (button.classList.contains("submit-icon")) button.classList.toggle("hidden", !hasText || locked);
       });
       const undoButton = composer.querySelector('[data-action="undo-edit"]');
-      if (undoButton) undoButton.disabled = !state.draft?.undoStack.length;
+      if (undoButton) undoButton.disabled = locked || !state.draft?.undoStack.length;
+      const deleteButton = composer.querySelector('[data-action="delete-current"]');
+      if (deleteButton && locked) deleteButton.setAttribute("disabled", "");
     }
     function resetStylePanelUiState() {
       state.styleScrollTop = 0;
@@ -41401,6 +41852,7 @@
     `;
       bindShadowEvents();
       syncMotionReadout();
+      autogrowComposerTextarea();
       if (state.confirm && !state.confirmClosing) {
         const active = state.shadow?.activeElement;
         const dialog = state.shadow?.querySelector("[data-confirm]");
@@ -41668,6 +42120,11 @@
           if (action === "confirm-cancel") closeConfirm();
           if (action === "confirm-delete") executeConfirm();
           if (action === "destroy") destroy();
+          if (action === "dictation-mic") {
+            void startDictation();
+          }
+          if (action === "dictation-cancel") cancelDictationAttempt();
+          if (action === "dictation-stop") stopDictationInput();
           if (action === "cancel-compose") {
             requestCancelComposer();
           }
@@ -41752,7 +42209,7 @@
             }
           }
           if (action === "undo-edit") {
-            undoDraftEdit();
+            if (!dictationActive()) undoDraftEdit();
           }
           if (action === "select-animation" && state.draft && control.dataset.animationId) {
             state.draft.selectedAnimationId = control.dataset.animationId;
@@ -41925,6 +42382,7 @@
         event.stopPropagation();
         const form = event.currentTarget;
         if (!state.selectedElement || !state.draft || !draftIsMeaningful()) return;
+        if (dictationActive()) return;
         const annotation = makeAnnotation(state.selectedElement, form);
         annotation.comment = state.draft.comment.trim();
         annotation.intent = state.draft.intent;
@@ -41995,6 +42453,7 @@
       if (comment) {
         comment.addEventListener("input", () => {
           if (state.draft) state.draft.comment = comment.value;
+          autogrowComposerTextarea(comment);
           syncComposerSubmitState();
         });
         comment.addEventListener("keydown", (event) => {
@@ -42628,7 +43087,7 @@
       }
     }
     function requestDeleteCurrent() {
-      if (!state.editingId) return;
+      if (!state.editingId || dictationActive()) return;
       openConfirm("delete-current", state.editingId, 1);
     }
     function requestClearAnnotations() {
@@ -42966,6 +43425,11 @@
         ensureInteractionShield();
         return;
       }
+      try {
+        state.micSupported = probeBrowserDictationSupport();
+      } catch {
+        state.micSupported = false;
+      }
       createRoot();
       state.settings = loadSettings();
       state.annotations = loadAnnotations();
@@ -43093,6 +43557,7 @@
     function destroy() {
       state.mcpClient?.destroy();
       state.mcpClient = null;
+      cleanupDictation();
       if (state.confirmTimer !== null) {
         window.clearTimeout(state.confirmTimer);
         state.confirmTimer = null;

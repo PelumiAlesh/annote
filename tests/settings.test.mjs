@@ -28,6 +28,18 @@ test("loads default settings when storage is empty", () => {
   assert.deepEqual(loadSettings(memoryStorage()), DEFAULT_SETTINGS);
 });
 
+test("continuous dictation defaults off and survives migration", () => {
+  assert.equal(DEFAULT_SETTINGS.continuousDictation, false);
+  const storage = memoryStorage({
+    [LEGACY_SETTINGS_STORAGE_KEY]: JSON.stringify({ clearAfterSend: true }),
+  });
+  assert.equal(loadSettings(storage).continuousDictation, false);
+  const on = memoryStorage({
+    [SETTINGS_STORAGE_KEY]: JSON.stringify({ continuousDictation: true }),
+  });
+  assert.equal(loadSettings(on).continuousDictation, true);
+});
+
 test("migrates legacy Feedback Mark settings to Annote settings", () => {
   const storage = memoryStorage({
     [LEGACY_SETTINGS_STORAGE_KEY]: JSON.stringify({ clearAfterSend: true }),
