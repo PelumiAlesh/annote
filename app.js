@@ -1,7 +1,9 @@
-const PACKAGE_BUNDLE = "https://cdn.jsdelivr.net/npm/annote@latest/dist/annote.iife.js";
+const SITE_BUNDLE = new URL("/dist/annote.iife.js", window.location.origin).href;
 
-const bookmarkletCode = `javascript:(()=>{const u=${JSON.stringify(PACKAGE_BUNDLE)};const a=window.__ANNOTE__||window.__UI_ANNOTATOR__;if(a){a.toggle();return;}const s=document.createElement('script');s.src=u;s.onload=()=>window.__ANNOTE__?.mount?.()||window.__UI_ANNOTATOR__?.mount?.();document.documentElement.appendChild(s);})()`;
+const BOOKMARKLET_BUNDLE =
+  "https://cdn.jsdelivr.net/npm/annote@latest/dist/annote.iife.js";
 
+const bookmarkletCode = `javascript:(()=>{const u=${JSON.stringify(BOOKMARKLET_BUNDLE)};const a=window.__ANNOTE__||window.__UI_ANNOTATOR__;if(a){a.toggle();return;}const s=document.createElement('script');s.src=u;s.onload=()=>window.__ANNOTE__?.mount?.()||window.__UI_ANNOTATOR__?.mount?.();document.documentElement.appendChild(s);})()`;
 const bookmarklet = document.querySelector("[data-bookmarklet]");
 if (bookmarklet) bookmarklet.setAttribute("href", bookmarkletCode);
 
@@ -105,13 +107,34 @@ document.querySelectorAll("[data-copy-target]").forEach((button) => {
 
 function runAnnote() {
   const existing = window.__ANNOTE__ || window.__UI_ANNOTATOR__;
-  if (existing) {
+  const siteScript = document.querySelector('script[data-annote-site-runtime="true"]');
+  const isSiteRuntime = !!siteScript && !!existing;
+
+  if (existing && isSiteRuntime) {
     existing.toggle?.();
     return;
   }
 
+  if (existing) {
+    try {
+      existing.destroy?.();
+    } catch {}
+    const oldSiteScript = document.querySelector('script[data-annote-site-runtime="true"]');
+    if (oldSiteScript) oldSiteScript.remove();
+    try {
+      // @ts-ignore
+      delete window.__ANNOTE__;
+      // @ts-ignore
+      delete window.__UI_ANNOTATOR__;
+      // @ts-ignore
+      delete window.__FEEDBACK_MARK__;
+    } catch {}
+  }
+
+  const freshBundleUrl = `${SITE_BUNDLE}?v=${Date.now()}`;
   const script = document.createElement("script");
-  script.src = PACKAGE_BUNDLE;
+  script.src = freshBundleUrl;
+  script.setAttribute("data-annote-site-runtime", "true");
   script.async = true;
   script.onload = () => {
     const annote = window.__ANNOTE__ || window.__UI_ANNOTATOR__;

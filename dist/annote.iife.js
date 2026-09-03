@@ -32612,6 +32612,29 @@
     return grouped;
   }
 
+  // src/background-helpers.ts
+  function isDefaultBackgroundValue(property2, value) {
+    const v3 = value.trim().toLowerCase();
+    if (!v3) return true;
+    switch (property2) {
+      case "background-image":
+        return v3 === "none";
+      case "background-position":
+        return v3 === "0% 0%" || v3 === "0px 0px";
+      case "background-size":
+        return v3 === "auto" || v3 === "auto auto";
+      case "background-repeat":
+        return v3 === "repeat" || v3 === "repeat repeat";
+      default:
+        return false;
+    }
+  }
+
+  // src/ui-label.ts
+  function formatUiLabel(component, fallback) {
+    return component ? `<${component}>` : fallback;
+  }
+
   // src/animation-math.ts
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
@@ -33887,11 +33910,6 @@
     };
   }
 
-  // src/ui-label.ts
-  function formatUiLabel(component, fallback) {
-    return component ? `<${component}>` : fallback;
-  }
-
   // src/settings.ts
   var SETTINGS_STORAGE_KEY = "annote:settings:v1";
   var LEGACY_SETTINGS_STORAGE_KEY = "feedback-mark:settings:v1";
@@ -34336,6 +34354,7 @@
     const Z_INDEX = 2147483646;
     const TOOLBAR_RAIL_HEIGHT = 264;
     const TOOLBAR_COLLAPSED_HEIGHT = 58;
+    const SHIELD_ID = "annote-interaction-shield";
     const SHORTCUTS = {
       "toggle-pick": "P",
       copy: "C",
@@ -34444,6 +34463,10 @@
       toolbarRailPinnedToDefault: true,
       toolbarDrag: null,
       suppressNextToolbarClick: false,
+      interactionShield: null,
+      structureOpen: false,
+      structureChildrenExpanded: false,
+      structureSiblingsExpanded: false,
       styleScrollTop: 0,
       focusComposerOnRender: false,
       styleEditorOpening: false,
@@ -34513,6 +34536,7 @@
       }
       if (key === "reactContext" && !value) reactSourceCoordinator.cancel();
       if (renderAfter) render();
+      ensureInteractionShield();
     }
     function restoreSelectionPausedAnimations() {
       const paused = state.selectionPausedAnimations;
@@ -34657,10 +34681,20 @@
       return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     }
     function isAnnotatorNode(node) {
+      if (isShieldElement(node)) return false;
       if (!(node instanceof Node)) return false;
       if (state.rootHost?.contains(node)) return true;
       const element = node instanceof Element ? node : node.parentElement;
       return !!element?.closest?.(".clr-picker");
+    }
+    function isShieldEventTarget(node) {
+      if (isShieldElement(node)) return true;
+      if (node instanceof Element && !!node.closest(`#${SHIELD_ID}, [data-annote-shield]`)) return true;
+      return false;
+    }
+    function isControlUiEventTarget(node) {
+      if (isShieldElement(node)) return false;
+      return isAnnotatorNode(node);
     }
     function isUsefulElement(element) {
       if (!(element instanceof HTMLElement)) return false;
@@ -34941,6 +34975,10 @@
       Appearance: [
         "background",
         "background-color",
+        "background-image",
+        "background-position",
+        "background-size",
+        "background-repeat",
         "opacity",
         "box-shadow",
         "transform",
@@ -34955,7 +34993,7 @@
       ]
     };
     const STATE_LABELS = {
-      current: "Current",
+      current: "Default",
       hover: "Hover",
       "focus-visible": "Focus visible",
       focus: "Focus",
@@ -35255,10 +35293,12 @@
           return meaningfulCssValue(row.value);
         });
         rowsByState[styleState.key] = rows.filter((row) => {
-          if (row.property !== "background-color") return true;
-          const backgroundRow = rows.find((item) => item.property === "background");
-          if (!backgroundRow) return true;
-          return !!styleState.declarations["background-color"] && !styleState.declarations.background;
+          if (row.property === "background") return false;
+          if (["background-image", "background-position", "background-size", "background-repeat"].includes(row.property)) {
+            if (styleState.declarations[row.property]) return true;
+            return !isDefaultBackgroundValue(row.property, row.value);
+          }
+          return true;
         });
       });
       const fonts = collectFontSuggestions(element);
@@ -35292,7 +35332,13 @@
           value: mixed ? "Mixed" : firstValue,
           tokenHints
         };
-      }).filter((row) => row.property !== "background-color");
+      }).filter((row) => {
+        if (row.property === "background") return false;
+        if (["background-image", "background-position", "background-size", "background-repeat"].includes(row.property)) {
+          return !isDefaultBackgroundValue(row.property, row.value) || row.value === "Mixed";
+        }
+        return true;
+      });
       const fonts = collectFontSuggestions(first);
       return {
         elementPath: "multi-select",
@@ -35544,6 +35590,14 @@
       document.head.appendChild(style);
       return style;
     }
+    function syntheticStyleElement(selector2, declarations) {
+      const cssText = declarationsCssText(declarations);
+      if (!cssText) return null;
+      const style = document.createElement("style");
+      style.textContent = `${selector2}{${cssText}}`;
+      document.head.appendChild(style);
+      return style;
+    }
     function applyPreview() {
       const element = state.selectedElement;
       const draft = state.draft;
@@ -35595,7 +35649,7 @@
         const declarations = new Map(Object.entries(stateInfo?.declarations || {}));
         draft.styleEdits.filter((edit) => edit.state === draft.activeState && edit.valid && edit.value.trim() !== edit.originalValue.trim()).forEach((edit) => declarations.set(edit.property, edit.value.trim()));
         if (declarations.size) {
-          const style = pseudoStyleElement(pseudoTargetSelector("preview"), draft.activeState, declarations.entries());
+          const style = syntheticStyleElement(pseudoTargetSelector("preview"), declarations.entries());
           if (style) preview.pseudoStyle = style;
         }
       } else if (draft.activeState !== "current") {
@@ -35630,6 +35684,15 @@
       }
       applyAnimationPreview();
     }
+    function captureBaseInspection(element) {
+      const shield = state.interactionShield;
+      const prev = shield?.style.pointerEvents;
+      if (shield) shield.style.pointerEvents = "none";
+      void element.offsetHeight;
+      const inspection = inspectElementStyles(element);
+      if (shield && prev !== void 0) shield.style.pointerEvents = prev;
+      return inspection;
+    }
     function startDraft(element, annotation) {
       restorePreview();
       const styleTargets = activeStyleTargets();
@@ -35638,7 +35701,8 @@
       } else if (state.selectedElements.length > 1 && state.selectionScope === "parent" && styleTargets[0]) {
         state.inspection = inspectSharedParentStyles(styleTargets[0]);
       } else {
-        state.inspection = inspectElementStyles(styleTargets[0] || element);
+        const target = styleTargets[0] || element;
+        state.inspection = captureBaseInspection(target);
       }
       const comment = annotation?.comment || "";
       const intent = annotation?.intent || "fix";
@@ -35957,6 +36021,58 @@
         return displayName(element);
       }
     }
+    function isStructureCandidate(element) {
+      if (!(element instanceof HTMLElement)) return false;
+      if (element === document.documentElement || element === document.body) return false;
+      if (state.rootHost?.contains(element)) return false;
+      if (element.closest(`#${SHIELD_ID}, [data-annote-shield]`)) return false;
+      if (element.closest(".clr-picker")) return false;
+      const tag = element.tagName.toLowerCase();
+      if (["script", "style", "template", "noscript"].includes(tag)) return false;
+      return true;
+    }
+    function structureLabel(element) {
+      const domLabel = displayName(element);
+      if (state.settings.reactContext) {
+        try {
+          const ctx = reactAdapter.getComponentContext(element);
+          if (ctx?.component) {
+            const primary = `<${ctx.component}>`;
+            const secondary = domLabel !== element.localName ? domLabel : null;
+            if (secondary && secondary !== primary) return { primary, secondary };
+            return { primary, secondary: domLabel !== primary ? domLabel : null };
+          }
+        } catch {
+        }
+      }
+      const text = element.textContent?.trim();
+      if (element.children.length === 0 && text && text.length > 0 && text.length <= 24) {
+        const truncated = text.slice(0, 20).replace(/\s+/g, " ");
+        return { primary: domLabel, secondary: `"${truncated}"` };
+      }
+      return { primary: domLabel, secondary: null };
+    }
+    function getStructureData(element) {
+      let parent = element.parentElement;
+      while (parent && !isStructureCandidate(parent)) {
+        parent = parent.parentElement;
+      }
+      if (parent === document.documentElement || parent === document.body) parent = null;
+      const allChildren = Array.from(element.children).filter(isStructureCandidate);
+      const children = allChildren.slice(0, 8);
+      const childrenTruncated = Math.max(0, allChildren.length - 8);
+      const parentForSiblings = element.parentElement;
+      let siblings = [];
+      let siblingsTruncated = 0;
+      if (parentForSiblings) {
+        const allSiblings = Array.from(parentForSiblings.children).filter(
+          (el) => el !== element && isStructureCandidate(el)
+        );
+        siblings = allSiblings.slice(0, 8);
+        siblingsTruncated = Math.max(0, allSiblings.length - 8);
+      }
+      return { parent, selected: element, children, siblings, childrenTruncated, siblingsTruncated };
+    }
     function commentCursor(fill = "#ff7a1a") {
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="${fill}" stroke="#000000" stroke-width="1.5" d="M5.5 4.5h13a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4.7 3.1c-.7.5-1.6-.1-1.4-1l.7-2.1h-.6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"/></svg>`;
       return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 4 4, crosshair`;
@@ -36121,6 +36237,54 @@
       state.rootHost = host;
       state.shadow = host.attachShadow({ mode: "open" });
       state.shadowClickBound = false;
+    }
+    function ensureInteractionShield() {
+      const shouldShow = !!(state.active && state.settings.preventPageActions);
+      if (shouldShow) {
+        if (state.interactionShield?.isConnected) return;
+        const shield = document.createElement("div");
+        shield.id = SHIELD_ID;
+        shield.setAttribute("data-annote-shield", "true");
+        shield.style.position = "fixed";
+        shield.style.inset = "0";
+        shield.style.zIndex = String(Z_INDEX - 1);
+        shield.style.pointerEvents = "auto";
+        shield.style.background = "transparent";
+        shield.style.touchAction = "pan-y";
+        document.body.appendChild(shield);
+        state.interactionShield = shield;
+      } else if (state.interactionShield) {
+        state.interactionShield.remove();
+        state.interactionShield = null;
+      }
+    }
+    function isShieldElement(node) {
+      return node instanceof HTMLElement && (node.id === SHIELD_ID || node.hasAttribute("data-annote-shield"));
+    }
+    function isControlUi(node) {
+      if (!(node instanceof Element)) return false;
+      if (node.closest(`#${ROOT_ID}`)) return true;
+      if (node.closest(".clr-picker")) return true;
+      return false;
+    }
+    function underlyingElementFromPoint(x2, y3) {
+      const elements = document.elementsFromPoint(x2, y3);
+      for (const el of elements) {
+        if (el instanceof HTMLElement) {
+          if (el.id === SHIELD_ID || el.hasAttribute("data-annote-shield")) continue;
+          if (el.closest(`#${ROOT_ID}`)) continue;
+          if (el.closest(".clr-picker")) continue;
+          if (isUsefulElement(el)) return el;
+        }
+      }
+      if (state.interactionShield) {
+        const original = state.interactionShield.style.pointerEvents;
+        state.interactionShield.style.pointerEvents = "none";
+        const found = deepElementFromPoint(x2, y3);
+        state.interactionShield.style.pointerEvents = original;
+        return found;
+      }
+      return deepElementFromPoint(x2, y3);
     }
     function styles() {
       return `
@@ -38694,6 +38858,71 @@
         .launcher-wrap { right: 0; }
         .panel { right: 62px; width: min(289px, calc(100vw - 78px)); }
       }
+      .structure-section {
+        margin-top: 12px;
+        border-top: 1px solid rgba(255,255,255,.08);
+        padding-top: 10px;
+      }
+      .structure-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+        min-height: 24px;
+        border: 0;
+        background: transparent;
+        color: rgba(255,255,255,.72);
+        font-size: 11px;
+        font-weight: 500;
+        cursor: pointer;
+        padding: 0;
+      }
+      .structure-header:hover { color: #fff; }
+      .structure-chevron {
+        display: inline-block;
+        transition: transform 120ms ease;
+        font-size: 10px;
+      }
+      .structure-section.open .structure-chevron { transform: rotate(90deg); }
+      .structure-body {
+        display: grid;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .structure-body.hidden { display: none; }
+      .structure-group { display: grid; gap: 4px; }
+      .structure-label {
+        color: rgba(255,255,255,.45);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .structure-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 24px;
+        padding: 0 6px;
+        border-radius: 4px;
+        background: rgba(255,255,255,.04);
+        color: rgba(255,255,255,.85);
+        font-size: 11px;
+        cursor: pointer;
+        border: 0;
+        text-align: left;
+        width: 100%;
+      }
+      .structure-row:hover { background: rgba(255,255,255,.08); }
+      .structure-row.selected { background: rgba(255,255,255,.12); color: #fff; }
+      .structure-row .primary { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .structure-row .secondary {
+        color: rgba(255,255,255,.45);
+        font-size: 10px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .structure-empty { color: rgba(255,255,255,.35); font-size: 11px; padding: 2px 6px; }
     `;
     }
     function escapeHtml(value) {
@@ -39036,7 +39265,11 @@
         "flex-direction": "Direction",
         "align-items": "Align",
         "justify-content": "Justify",
-        "background-color": "Background",
+        "background-color": "Background color",
+        "background-image": "Background image",
+        "background-position": "Background position",
+        "background-size": "Background size",
+        "background-repeat": "Background repeat",
         "border-width": "Border Width",
         "border-radius": "Radius",
         "outline-width": "Outline Width",
@@ -39657,7 +39890,50 @@
           </datalist>
         </div>
       </div>
+      ${renderStructureSection()}
     </div>`;
+    }
+    function renderStructureSection() {
+      const target = state.selectedElement;
+      if (!target) return "";
+      const data = getStructureData(target);
+      const isOpen = state.structureOpen;
+      const renderRow = (el, opts = {}) => {
+        const { primary, secondary } = structureLabel(el);
+        const selector2 = selectorForElement(el);
+        const isSelected = !!opts.isSelected;
+        const cls = `structure-row ${isSelected ? "selected" : ""} ${opts.isParent ? "is-parent" : ""}`;
+        return `<button class="${cls}" type="button" data-structure-target="${escapeHtml(selector2)}" aria-label="Select ${escapeHtml(primary)}">${escapeHtml(primary)}${secondary ? ` <span class="secondary">${escapeHtml(secondary)}</span>` : ""}</button>`;
+      };
+      const parentRow = data.parent ? renderRow(data.parent, { isParent: true }) : `<div class="structure-empty">No parent</div>`;
+      const selectedRow = renderRow(data.selected, { isSelected: true });
+      const childrenHeader = `\u25B8 Children ${data.children.length}${data.childrenTruncated ? ` +${data.childrenTruncated} more` : ""}`;
+      const siblingsHeader = `\u25B8 Siblings ${data.siblings.length}${data.siblingsTruncated ? ` +${data.siblingsTruncated} more` : ""}`;
+      const childrenList = state.structureChildrenExpanded ? data.children.map((el) => renderRow(el)).join("") + (data.childrenTruncated ? `<div class="structure-empty">+${data.childrenTruncated} more</div>` : "") : data.children.slice(0, 8).map((el) => renderRow(el)).join("") + (data.children.length ? "" : `<div class="structure-empty">No children</div>`) + (data.childrenTruncated ? `<div class="structure-empty">+${data.childrenTruncated} more</div>` : "");
+      const siblingsList = state.structureSiblingsExpanded ? data.siblings.map((el) => renderRow(el)).join("") + (data.siblingsTruncated ? `<div class="structure-empty">+${data.siblingsTruncated} more</div>` : "") : data.siblings.slice(0, 8).map((el) => renderRow(el)).join("") + (data.siblings.length ? "" : `<div class="structure-empty">No siblings</div>`) + (data.siblingsTruncated ? `<div class="structure-empty">+${data.siblingsTruncated} more</div>` : "");
+      return `<section class="structure-section ${isOpen ? "open" : ""}" data-structure-section>
+      <button class="structure-header" type="button" data-action="toggle-structure" aria-expanded="${isOpen ? "true" : "false"}">
+        <span class="structure-chevron">\u25B8</span> Structure
+      </button>
+      <div class="structure-body ${isOpen ? "" : "hidden"}">
+        <div class="structure-group">
+          <div class="structure-label">\u2191 Parent</div>
+          ${parentRow}
+        </div>
+        <div class="structure-group">
+          <div class="structure-label">\u25CF Selected</div>
+          ${selectedRow}
+        </div>
+        <div class="structure-group">
+          <button class="structure-toggle" type="button" data-action="toggle-structure-children" aria-expanded="${state.structureChildrenExpanded ? "true" : "false"}">${childrenHeader}</button>
+          <div class="structure-list ${state.structureChildrenExpanded ? "" : "hidden"}">${childrenList}</div>
+        </div>
+        <div class="structure-group">
+          <button class="structure-toggle" type="button" data-action="toggle-structure-siblings" aria-expanded="${state.structureSiblingsExpanded ? "true" : "false"}">${siblingsHeader}</button>
+          <div class="structure-list ${state.structureSiblingsExpanded ? "" : "hidden"}">${siblingsList}</div>
+        </div>
+      </div>
+    </section>`;
     }
     function renderComposer(composerTarget, composerPosition, editingAnnotation) {
       const draft = state.draft;
@@ -39716,7 +39992,7 @@
         <section class="settings-section" aria-label="Behavior">
           ${renderSettingsToggle("pauseAnimationOnSelect", "Pause animation on select", "Pause active motion when you select it.")}
           ${renderSettingsToggle("clearAfterSend", "Clear after send", "Remove submitted annotations after sending.")}
-          ${renderSettingsToggle("preventPageActions", "Prevent page actions while annotating", "Clicks select elements instead of triggering them.")}
+          ${renderSettingsToggle("preventPageActions", "Prevent page interactions while annotating", "Prevent clicks and hover interactions while selecting elements.")}
         </section>
         <section class="settings-section" aria-label="Context">
           ${renderSettingsToggle("reactContext", "React context", "Include component and source context when available.")}
@@ -40607,6 +40883,7 @@
       restoreStyleScroll();
       updateSelectionOverlay();
       updateHoverOverlay();
+      ensureInteractionShield();
       if (composerTarget) {
         if (activeFocus || state.focusComposerOnRender) {
           const shouldInitialFocus = state.focusComposerOnRender;
@@ -40863,6 +41140,28 @@
             state.openFontMenu = null;
             state.openTokenMenu = null;
             render();
+          }
+          if (action === "toggle-structure") {
+            state.structureOpen = !state.structureOpen;
+            render();
+          }
+          if (action === "toggle-structure-children") {
+            state.structureChildrenExpanded = !state.structureChildrenExpanded;
+            render();
+          }
+          if (action === "toggle-structure-siblings") {
+            state.structureSiblingsExpanded = !state.structureSiblingsExpanded;
+            render();
+          }
+          if (control.dataset.structureTarget) {
+            const selector2 = control.dataset.structureTarget;
+            const target = resolveElement(selector2);
+            if (target && isStructureCandidate(target)) {
+              const anchor = { x: target.getBoundingClientRect().left + 20, y: target.getBoundingClientRect().top + 20 };
+              state.selectedElements = [];
+              updateSelectionOverlay();
+              openComposerForElement(target, anchor);
+            }
           }
           if (action === "undo-edit") {
             undoDraftEdit();
@@ -41247,6 +41546,32 @@
         updateTextDraft(value);
         syncComposerSubmitState();
       });
+      root.querySelectorAll("[data-structure-target]").forEach((row) => {
+        row.addEventListener("pointerenter", () => {
+          const selector2 = row.dataset.structureTarget;
+          const el = selector2 ? resolveElement(selector2) : null;
+          if (el && isStructureCandidate(el)) {
+            state.hoverElement = el;
+            updateHoverOverlay();
+          }
+        });
+        row.addEventListener("pointerleave", () => {
+          state.hoverElement = state.selectedElement;
+          updateHoverOverlay();
+        });
+        row.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const selector2 = row.dataset.structureTarget;
+          const target = selector2 ? resolveElement(selector2) : null;
+          if (target && isStructureCandidate(target)) {
+            const anchor = { x: target.getBoundingClientRect().left + 20, y: target.getBoundingClientRect().top + 20 };
+            state.selectedElements = [];
+            updateSelectionOverlay();
+            openComposerForElement(target, anchor);
+          }
+        });
+      });
     }
     function updateHoverOverlay() {
       const outline = state.shadow?.querySelector("[data-hover-outline]");
@@ -41588,7 +41913,7 @@
     function onPointerMove(event) {
       if (!state.active) return;
       if (state.shiftSelecting && !event.shiftKey) resetShiftSelectionState();
-      if (isAnnotatorNode(event.target)) {
+      if (isControlUiEventTarget(event.target)) {
         if (state.hoverElement) {
           state.hoverElement = null;
           updateHoverOverlay();
@@ -41600,7 +41925,7 @@
         return;
       }
       if (state.selectedElement) return;
-      const element = deepElementFromPoint(event.clientX, event.clientY);
+      const element = underlyingElementFromPoint(event.clientX, event.clientY);
       const next = element ? choosePickTarget(element) : null;
       const hoveredAnnotation = hoveredAnnotationForElement(next);
       if (state.hoveredMarkerId !== hoveredAnnotation?.id) {
@@ -41648,8 +41973,8 @@
       render();
     }
     function onPointerDown(event) {
-      if (!state.active || isAnnotatorNode(event.target)) return;
-      const element = deepElementFromPoint(event.clientX, event.clientY);
+      if (!state.active || isControlUiEventTarget(event.target)) return;
+      const element = underlyingElementFromPoint(event.clientX, event.clientY);
       if (!element) return;
       const target = choosePickTarget(element);
       const anchor = { x: event.clientX, y: event.clientY };
@@ -41680,7 +42005,7 @@
       openComposerForElement(target, anchor);
     }
     function onClick(event) {
-      if (!state.active || isAnnotatorNode(event.target)) return;
+      if (!state.active || isControlUiEventTarget(event.target)) return;
       if (!shouldPreventUnderlyingAction()) return;
       event.preventDefault();
       event.stopPropagation();
@@ -41897,6 +42222,7 @@
     function mount() {
       if (state.mounted) {
         render();
+        ensureInteractionShield();
         return;
       }
       createRoot();
@@ -41970,6 +42296,7 @@
       state.visible = false;
       state.hoveredMarkerId = null;
       render();
+      ensureInteractionShield();
     }
     function deactivate() {
       restorePreview();
@@ -41979,6 +42306,7 @@
       clearComposerState();
       state.composerShake = false;
       render();
+      ensureInteractionShield();
     }
     function collapseToolbar() {
       if (!state.toolbarOpen) return;
@@ -42028,6 +42356,8 @@
       setAnnotatingCursor(false);
       restorePreview();
       cleanupColorisAssets();
+      state.interactionShield?.remove();
+      state.interactionShield = null;
       state.rootHost?.remove();
       state.rootHost = null;
       state.shadow = null;
