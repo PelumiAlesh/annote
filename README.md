@@ -2,7 +2,7 @@
 
 **Visual feedback for coding agents.**
 
-Point at the UI. Leave feedback. Let your coding agent understand exactly what you mean.
+Point at the UI. Type or dictate feedback. Let your coding agent understand exactly what you mean.
 
 Annote attaches feedback to the actual interface with DOM, CSS, React, accessibility and motion context, then makes it available to coding agents over MCP.
 
@@ -118,6 +118,7 @@ Activate Annote and point at an element.
 You can:
 
 * leave implementation notes
+* dictate feedback with your voice
 * inspect and edit CSS
 * edit animation timing and easing
 * inspect React component context
