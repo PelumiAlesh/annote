@@ -34869,6 +34869,7 @@
       motionFrame: null,
       motionGraphDrag: null,
       selectionPausedAnimations: [],
+      motionUserPaused: /* @__PURE__ */ new Set(),
       preview: null,
       committed: /* @__PURE__ */ new Map(),
       autocomplete: null,
@@ -34972,11 +34973,17 @@
       const paused = state.selectionPausedAnimations;
       state.selectionPausedAnimations = [];
       paused.forEach(({ animation, originalPlayState }) => {
+        if (state.motionUserPaused.has(animation)) return;
         try {
           if (originalPlayState === "running") void animation.play();
         } catch {
         }
       });
+      state.motionUserPaused.clear();
+    }
+    function isMotionUserPaused(animation) {
+      if (state.motionUserPaused.has(animation.runtime)) return true;
+      return selectedMotionRuntimes(animation).some((runtime) => state.motionUserPaused.has(runtime));
     }
     function pauseAnimationsForSelection(element) {
       restoreSelectionPausedAnimations();
@@ -35096,12 +35103,23 @@
     function drawWaveform(canvas, levels, live) {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      const width = canvas.width;
-      const height = canvas.height;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const cssWidth = canvas.clientWidth || canvas.width;
+      const cssHeight = canvas.clientHeight || canvas.height;
+      const bufWidth = Math.max(1, Math.round(cssWidth * dpr));
+      const bufHeight = Math.max(1, Math.round(cssHeight * dpr));
+      if (canvas.width !== bufWidth || canvas.height !== bufHeight) {
+        canvas.width = bufWidth;
+        canvas.height = bufHeight;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const width = cssWidth;
+      const height = cssHeight;
       ctx.clearRect(0, 0, width, height);
-      const bars = 28;
-      const gap = 3;
-      const barWidth = (width - gap * (bars - 1)) / bars;
+      const bars = 36;
+      const gap = 2;
+      const barWidth = Math.max(1, (width - gap * (bars - 1)) / bars);
+      const radius = Math.min(1.5, barWidth / 2);
       ctx.fillStyle = "rgba(255,255,255,.55)";
       for (let i2 = 0; i2 < bars; i2 += 1) {
         const level = levels[i2] ?? 0.04;
@@ -35109,7 +35127,7 @@
         const x2 = i2 * (barWidth + gap);
         const y3 = (height - barHeight) / 2;
         ctx.beginPath();
-        ctx.roundRect(x2, y3, barWidth, barHeight, barWidth / 2);
+        ctx.roundRect(x2, y3, barWidth, barHeight, radius);
         ctx.fill();
       }
       if (!live) {
@@ -35144,7 +35162,7 @@
             const previous = session.levels.length ? session.levels[session.levels.length - 1] : rms;
             const smoothed = previous * 0.55 + rms * 0.45;
             session.levels.push(smoothed);
-            if (session.levels.length > 28) session.levels.shift();
+            if (session.levels.length > 36) session.levels.shift();
             drawWaveform(canvas, session.levels, true);
           }
         }
@@ -36230,28 +36248,30 @@
           if (sessions.has(match.id)) return;
           const session = createAnimationPreviewSession(match);
           session.applyAnnotationPatch(patch);
-          try {
-            if (match.runtime.playState === "paused") {
-              const pausedEntry2 = state.selectionPausedAnimations.find((entry) => entry.animation === match.runtime);
-              if (pausedEntry2?.originalPlayState === "running") {
-                void match.runtime.play();
-                try {
-                  match.runtime.currentTime = 0;
-                } catch {
+          if (!isMotionUserPaused(match)) {
+            try {
+              if (match.runtime.playState === "paused") {
+                const pausedEntry2 = state.selectionPausedAnimations.find((entry) => entry.animation === match.runtime);
+                if (pausedEntry2?.originalPlayState === "running") {
+                  void match.runtime.play();
+                  try {
+                    match.runtime.currentTime = 0;
+                  } catch {
+                  }
+                  void match.runtime.play();
+                } else {
+                  void match.runtime.play();
+                  try {
+                    match.runtime.currentTime = 0;
+                  } catch {
+                  }
+                  void match.runtime.play();
                 }
-                void match.runtime.play();
-              } else {
-                void match.runtime.play();
-                try {
-                  match.runtime.currentTime = 0;
-                } catch {
-                }
+              } else if (match.runtime.playState !== "running") {
                 void match.runtime.play();
               }
-            } else if (match.runtime.playState !== "running") {
-              void match.runtime.play();
+            } catch {
             }
-          } catch {
           }
           const pausedEntry = state.selectionPausedAnimations.find((entry) => entry.animation === match.runtime);
           if (pausedEntry) {
@@ -36555,7 +36575,7 @@
       session.applyAnnotationPatch(patch);
       const runtime = animation.runtime;
       const wasPausedForInspection = state.selectionPausedAnimations.some((entry) => entry.animation === runtime);
-      const shouldReplay = wasPausedForInspection || runtime.playState === "paused";
+      const shouldReplay = !isMotionUserPaused(animation) && (wasPausedForInspection || runtime.playState === "paused");
       if (shouldReplay) {
         try {
           try {
@@ -36572,7 +36592,7 @@
           }
         } catch {
         }
-      } else if (runtime.playState !== "running") {
+      } else if (!isMotionUserPaused(animation) && runtime.playState !== "running") {
         try {
           void runtime.play();
         } catch {
@@ -41562,7 +41582,7 @@
       const animation = selectedAnimation();
       state.motionScrub = null;
       scrub?.scrubber.classList.remove("scrubbing");
-      if (scrub?.wasRunning && animation?.id === scrub.animationId) {
+      if (scrub?.wasRunning && animation?.id === scrub.animationId && !isMotionUserPaused(animation)) {
         selectedMotionRuntimes(animation).forEach((runtime) => void runtime.play());
       }
       syncMotionReadout();
@@ -42225,10 +42245,24 @@
           if (action === "toggle-animation-play") {
             const animation = selectedAnimation();
             if (animation && isMotionRunning(animation)) {
-              selectedMotionRuntimes(animation).forEach((runtime) => runtime.pause());
+              const runtimes = selectedMotionRuntimes(animation);
+              runtimes.forEach((runtime) => {
+                try {
+                  runtime.pause();
+                  state.motionUserPaused.add(runtime);
+                } catch {
+                }
+              });
               syncMotionReadout();
             } else if (animation) {
-              selectedMotionRuntimes(animation).forEach((runtime) => void runtime.play());
+              const runtimes = selectedMotionRuntimes(animation);
+              runtimes.forEach((runtime) => {
+                try {
+                  void runtime.play();
+                } catch {
+                }
+                state.motionUserPaused.delete(runtime);
+              });
               startMotionReadoutLoop();
             }
           }
@@ -42237,6 +42271,7 @@
             if (animation) {
               try {
                 selectedMotionRuntimes(animation).forEach((runtime) => {
+                  state.motionUserPaused.delete(runtime);
                   runtime.currentTime = 0;
                   void runtime.play();
                 });

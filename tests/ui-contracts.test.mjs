@@ -172,6 +172,19 @@ test("footer groups keep commit anchored right", () => {
   assert.ok(src.includes("footer-delete-gap"), "delete gap missing");
 });
 
+test("motion user-pause sticks until explicit play or replay", () => {
+  assert.ok(src.includes("motionUserPaused"), "user-pause tracking missing");
+  assert.ok(src.includes("isMotionUserPaused"), "user-pause guard missing");
+  const replayIdx = src.indexOf("const shouldReplay");
+  assert.ok(replayIdx !== -1, "preview replay decision missing");
+  assert.ok(src.slice(replayIdx, replayIdx + 200).includes("!isMotionUserPaused"), "preview resumes user-paused animation");
+  const restoreIdx = src.indexOf("function restoreSelectionPausedAnimations");
+  assert.ok(restoreIdx !== -1, "selection restore missing");
+  assert.ok(src.slice(restoreIdx, restoreIdx + 800).includes("motionUserPaused"), "close resumes user-paused animation");
+  assert.ok(src.includes("action === \"toggle-animation-play\""), "pause toggle missing");
+  assert.ok(src.includes("action === \"replay-animation\""), "replay missing");
+});
+
 test("dictation chrome stays quiet", () => {
   assert.ok(src.includes(".dictation-x {"), "x rule missing");
   assert.ok(src.includes(".footer-mic::after"), "footer mic hit area missing");

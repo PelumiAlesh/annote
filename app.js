@@ -1,11 +1,14 @@
 const SITE_BUNDLE = new URL("/dist/annote.iife.js", window.location.origin).href;
 
-const BOOKMARKLET_BUNDLE =
-  "https://cdn.jsdelivr.net/npm/annote@latest/dist/annote.iife.js";
+const BOOKMARKLET_BUNDLE = window.AnnoteBookmarklet
+  ? window.AnnoteBookmarklet.BUNDLE_URL
+  : "https://cdn.jsdelivr.net/npm/annote@latest/dist/annote.iife.js";
 
-const bookmarkletCode = `javascript:(()=>{const u=${JSON.stringify(BOOKMARKLET_BUNDLE)};const a=window.__ANNOTE__||window.__UI_ANNOTATOR__;if(a){a.toggle();return;}const s=document.createElement('script');s.src=u;s.onload=()=>window.__ANNOTE__?.mount?.()||window.__UI_ANNOTATOR__?.mount?.();document.documentElement.appendChild(s);})()`;
+const bookmarkletCode = window.AnnoteBookmarklet
+  ? window.AnnoteBookmarklet.href(BOOKMARKLET_BUNDLE)
+  : "";
 const bookmarklet = document.querySelector("[data-bookmarklet]");
-if (bookmarklet) bookmarklet.setAttribute("href", bookmarkletCode);
+if (bookmarklet && bookmarkletCode) bookmarklet.setAttribute("href", bookmarkletCode);
 
 let bookmarkletDragGhost = null;
 function cleanupBookmarkletGhost() {
@@ -140,12 +143,37 @@ function runAnnote() {
   script.src = freshBundleUrl;
   script.setAttribute("data-annote-site-runtime", "true");
   script.async = true;
+  let settled = false;
+  const timer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    script.remove();
+    toast("Could not load Annote");
+  }, 10000);
   script.onload = () => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
     const annote = window.__ANNOTE__ || window.__UI_ANNOTATOR__;
-    annote?.mount?.();
+    if (!annote) {
+      script.remove();
+      toast("Could not load Annote");
+      return;
+    }
+    try {
+      annote.mount?.();
+    } catch {
+      toast("Could not load Annote");
+      return;
+    }
     toast("Annote is running — press ⌥P / Alt+P to start picking");
   };
-  script.onerror = () => toast("Could not load Annote");
+  script.onerror = () => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    toast("Could not load Annote");
+  };
   document.documentElement.appendChild(script);
 }
 

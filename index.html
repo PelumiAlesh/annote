@@ -100,10 +100,11 @@ When you are done, explain how I should use Annote, tell me anything I need to r
     <section class="section shell" id="bookmarklet">
       <div class="section-index">02</div>
       <div class="section-copy">
-        <p class="kicker">No project change</p>
+        <p class="kicker">Quick use on webpages</p>
         <h2>Or use the bookmarklet.</h2>
         <p>
           Want Annote on a page without touching its code? Drag the button below into your browser bookmarks bar, then click it on any page where you want to annotate.
+          For development projects, installing through npm above is the most reliable option.
         </p>
 
         <div class="bookmarklet-wrap">
@@ -121,7 +122,7 @@ When you are done, explain how I should use Annote, tell me anything I need to r
         </div>
 
         <p class="note">
-          The bookmarklet loads the published Annote browser bundle from npm through jsDelivr. Some sites with strict Content Security Policy settings may block injected scripts.
+          The bookmarklet loads the published Annote browser bundle (<code>annote@latest</code>) from npm through jsDelivr. It works on many standard webpages, but some sites with strict Content Security Policy settings may block injected scripts.
         </p>
         <p class="note">
           Most mobile browsers cannot install bookmarklets. To annotate on a phone or tablet, copy the link and add it as a bookmark manually, or run Annote from a desktop browser.
@@ -216,6 +217,7 @@ When you are done, explain how I should use Annote, tell me anything I need to r
   </footer>
 
   <div class="toast" role="status" aria-live="polite" data-toast></div>
+  <script src="./bookmarklet-loader.js" defer></script>
   <script src="./app.js" defer></script>
 </body>
 </html>

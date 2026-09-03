@@ -139,9 +139,11 @@ If you want to use Annote without adding it to a project, use the bookmarklet in
 
 Drag **Annote** to your bookmarks bar, then click it on a page to load Annote.
 
-The bookmarklet loads the published browser bundle from npm through jsDelivr.
+The bookmarklet loads the published Annote browser bundle (`annote@latest`) from npm through jsDelivr, so it stays up to date automatically.
 
-Some websites with strict Content Security Policy settings may block injected scripts.
+It works on many normal webpages, but some pages may block injected scripts due to Content Security Policy or browser restrictions. That is a platform limitation, not an Annote bug — if the bookmarklet cannot run on a page, it says so instead of failing silently.
+
+For development projects, installing Annote through npm is the recommended and most reliable option.
 
 ## MCP tools
 
