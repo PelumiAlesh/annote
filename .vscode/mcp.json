@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "annote": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "annote",
+        "server"
+      ]
+    }
+  }
+}
