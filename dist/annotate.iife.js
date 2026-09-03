@@ -38861,7 +38861,7 @@
       .structure-section {
         margin-top: 12px;
         border-top: 1px solid rgba(255,255,255,.08);
-        padding-top: 10px;
+        padding: 10px 0 0;
       }
       .structure-header {
         display: flex;
@@ -38875,45 +38875,117 @@
         font-size: 11px;
         font-weight: 500;
         cursor: pointer;
-        padding: 0;
+        padding: 0 9px;
       }
       .structure-header:hover { color: #fff; }
       .structure-chevron {
-        display: inline-block;
-        transition: transform 120ms ease;
-        font-size: 10px;
+        display: inline-grid;
+        place-items: center;
+        width: 14px;
+        height: 14px;
+        flex: 0 0 14px;
+        color: rgba(255,255,255,.45);
+        transition: transform 200ms cubic-bezier(.2,.8,.2,1);
+      }
+      .structure-chevron svg {
+        width: 12px;
+        height: 12px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
       .structure-section.open .structure-chevron { transform: rotate(90deg); }
+      .structure-toggle[aria-expanded="true"] .structure-chevron { transform: rotate(90deg); }
       .structure-body {
         display: grid;
-        gap: 8px;
+        grid-template-rows: 1fr;
+        opacity: 1;
+        transition: grid-template-rows 220ms cubic-bezier(.2,.8,.2,1), opacity 180ms ease;
         margin-top: 8px;
+        padding: 0 9px;
       }
-      .structure-body.hidden { display: none; }
-      .structure-group { display: grid; gap: 4px; }
+      .structure-body.collapsed {
+        grid-template-rows: 0fr;
+        opacity: 0;
+        margin-top: 0;
+      }
+      .structure-body-inner {
+        overflow: hidden;
+        display: grid;
+        gap: 10px;
+      }
+      .structure-group {
+        display: grid;
+        gap: 6px;
+        padding: 8px 0 0;
+        border-top: 1px solid rgba(255,255,255,.06);
+      }
+      .structure-group:first-child { padding-top: 0; border-top: 0; }
       .structure-label {
         color: rgba(255,255,255,.45);
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 0.04em;
+        padding: 0 1px;
       }
-      .structure-row {
+      .structure-toggle {
         display: flex;
         align-items: center;
         gap: 6px;
-        min-height: 24px;
-        padding: 0 6px;
-        border-radius: 4px;
-        background: rgba(255,255,255,.04);
+        width: 100%;
+        min-height: 20px;
+        border: 0;
+        background: transparent;
+        color: rgba(255,255,255,.45);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        padding: 0 1px;
+        text-align: left;
+      }
+      .structure-toggle:hover { color: rgba(255,255,255,.72); }
+      .structure-toggle .structure-chevron { color: inherit; }
+      .structure-list {
+        display: grid;
+        grid-template-rows: 1fr;
+        opacity: 1;
+        transition: grid-template-rows 200ms cubic-bezier(.2,.8,.2,1), opacity 160ms ease;
+        gap: 4px;
+      }
+      .structure-list.collapsed {
+        grid-template-rows: 0fr;
+        opacity: 0;
+      }
+      .structure-list-inner {
+        overflow: hidden;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 2px 0;
+      }
+      .structure-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 22px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.06);
         color: rgba(255,255,255,.85);
         font-size: 11px;
         cursor: pointer;
-        border: 0;
+        border: 1px solid transparent;
         text-align: left;
-        width: 100%;
+        width: fit-content;
+        max-width: 100%;
       }
-      .structure-row:hover { background: rgba(255,255,255,.08); }
-      .structure-row.selected { background: rgba(255,255,255,.12); color: #fff; }
+      .structure-row:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.08); }
+      .structure-row.selected { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.14); }
+      .structure-row.is-parent { background: transparent; border-color: rgba(255,255,255,.06); color: rgba(255,255,255,.72); }
+      .structure-row.is-parent:hover { background: rgba(255,255,255,.06); }
       .structure-row .primary { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .structure-row .secondary {
         color: rgba(255,255,255,.45);
@@ -38922,7 +38994,7 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .structure-empty { color: rgba(255,255,255,.35); font-size: 11px; padding: 2px 6px; }
+      .structure-empty { color: rgba(255,255,255,.35); font-size: 11px; padding: 2px 0; }
     `;
     }
     function escapeHtml(value) {
@@ -39068,6 +39140,7 @@
       const icons = {
         check: '<path d="m4 12 5 5L20 6"/>',
         "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+        "chevron-right": '<path d="m9 6 6 6-6 6"/>',
         "chevron-up": '<path d="m18 15-6-6-6 6"/>',
         copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
         cross: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
@@ -39905,32 +39978,35 @@
         const cls = `structure-row ${isSelected ? "selected" : ""} ${opts.isParent ? "is-parent" : ""}`;
         return `<button class="${cls}" type="button" data-structure-target="${escapeHtml(selector2)}" aria-label="Select ${escapeHtml(primary)}">${escapeHtml(primary)}${secondary ? ` <span class="secondary">${escapeHtml(secondary)}</span>` : ""}</button>`;
       };
+      const chevronIcon = () => `<span class="structure-chevron">${icon("chevron-right")}</span>`;
       const parentRow = data.parent ? renderRow(data.parent, { isParent: true }) : `<div class="structure-empty">No parent</div>`;
       const selectedRow = renderRow(data.selected, { isSelected: true });
-      const childrenHeader = `\u25B8 Children ${data.children.length}${data.childrenTruncated ? ` +${data.childrenTruncated} more` : ""}`;
-      const siblingsHeader = `\u25B8 Siblings ${data.siblings.length}${data.siblingsTruncated ? ` +${data.siblingsTruncated} more` : ""}`;
-      const childrenList = state.structureChildrenExpanded ? data.children.map((el) => renderRow(el)).join("") + (data.childrenTruncated ? `<div class="structure-empty">+${data.childrenTruncated} more</div>` : "") : data.children.slice(0, 8).map((el) => renderRow(el)).join("") + (data.children.length ? "" : `<div class="structure-empty">No children</div>`) + (data.childrenTruncated ? `<div class="structure-empty">+${data.childrenTruncated} more</div>` : "");
-      const siblingsList = state.structureSiblingsExpanded ? data.siblings.map((el) => renderRow(el)).join("") + (data.siblingsTruncated ? `<div class="structure-empty">+${data.siblingsTruncated} more</div>` : "") : data.siblings.slice(0, 8).map((el) => renderRow(el)).join("") + (data.siblings.length ? "" : `<div class="structure-empty">No siblings</div>`) + (data.siblingsTruncated ? `<div class="structure-empty">+${data.siblingsTruncated} more</div>` : "");
+      const childrenCountLabel = `${data.children.length}${data.childrenTruncated ? ` +${data.childrenTruncated} more` : ""}`;
+      const siblingsCountLabel = `${data.siblings.length}${data.siblingsTruncated ? ` +${data.siblingsTruncated} more` : ""}`;
+      const childrenListInner = state.structureChildrenExpanded ? data.children.map((el) => renderRow(el)).join("") + (data.childrenTruncated ? `<div class="structure-empty">+${data.childrenTruncated} more</div>` : "") : data.children.slice(0, 8).map((el) => renderRow(el)).join("") + (data.children.length ? "" : `<div class="structure-empty">No children</div>`) + (data.childrenTruncated ? `<div class="structure-empty">+${data.childrenTruncated} more</div>` : "");
+      const siblingsListInner = state.structureSiblingsExpanded ? data.siblings.map((el) => renderRow(el)).join("") + (data.siblingsTruncated ? `<div class="structure-empty">+${data.siblingsTruncated} more</div>` : "") : data.siblings.slice(0, 8).map((el) => renderRow(el)).join("") + (data.siblings.length ? "" : `<div class="structure-empty">No siblings</div>`) + (data.siblingsTruncated ? `<div class="structure-empty">+${data.siblingsTruncated} more</div>` : "");
       return `<section class="structure-section ${isOpen ? "open" : ""}" data-structure-section>
       <button class="structure-header" type="button" data-action="toggle-structure" aria-expanded="${isOpen ? "true" : "false"}">
-        <span class="structure-chevron">\u25B8</span> Structure
+        ${chevronIcon()} Structure
       </button>
-      <div class="structure-body ${isOpen ? "" : "hidden"}">
-        <div class="structure-group">
-          <div class="structure-label">\u2191 Parent</div>
-          ${parentRow}
-        </div>
-        <div class="structure-group">
-          <div class="structure-label">\u25CF Selected</div>
-          ${selectedRow}
-        </div>
-        <div class="structure-group">
-          <button class="structure-toggle" type="button" data-action="toggle-structure-children" aria-expanded="${state.structureChildrenExpanded ? "true" : "false"}">${childrenHeader}</button>
-          <div class="structure-list ${state.structureChildrenExpanded ? "" : "hidden"}">${childrenList}</div>
-        </div>
-        <div class="structure-group">
-          <button class="structure-toggle" type="button" data-action="toggle-structure-siblings" aria-expanded="${state.structureSiblingsExpanded ? "true" : "false"}">${siblingsHeader}</button>
-          <div class="structure-list ${state.structureSiblingsExpanded ? "" : "hidden"}">${siblingsList}</div>
+      <div class="structure-body ${isOpen ? "" : "collapsed"}">
+        <div class="structure-body-inner">
+          <div class="structure-group">
+            <div class="structure-label">\u2191 Parent</div>
+            ${parentRow}
+          </div>
+          <div class="structure-group">
+            <div class="structure-label">\u25CF Selected</div>
+            ${selectedRow}
+          </div>
+          <div class="structure-group">
+            <button class="structure-toggle" type="button" data-action="toggle-structure-children" aria-expanded="${state.structureChildrenExpanded ? "true" : "false"}">${chevronIcon()} Children <span class="structure-count">${childrenCountLabel}</span></button>
+            <div class="structure-list ${state.structureChildrenExpanded ? "" : "collapsed"}"><div class="structure-list-inner">${childrenListInner}</div></div>
+          </div>
+          <div class="structure-group">
+            <button class="structure-toggle" type="button" data-action="toggle-structure-siblings" aria-expanded="${state.structureSiblingsExpanded ? "true" : "false"}">${chevronIcon()} Siblings <span class="structure-count">${siblingsCountLabel}</span></button>
+            <div class="structure-list ${state.structureSiblingsExpanded ? "" : "collapsed"}"><div class="structure-list-inner">${siblingsListInner}</div></div>
+          </div>
         </div>
       </div>
     </section>`;
