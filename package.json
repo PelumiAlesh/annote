@@ -1,6 +1,6 @@
 {
   "name": "annote",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Visual feedback for coding agents. Annotate interfaces and send structured UI feedback over MCP.",
   "license": "MIT",
   "repository": {
