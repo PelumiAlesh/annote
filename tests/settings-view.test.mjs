@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  ANNOTE_VERSION,
   mcpNeedsApprovalStatus,
   mcpStatusLabel,
   renderHelpSettings,
@@ -11,6 +10,7 @@ import {
   renderSettingsHeader,
   renderSettingsRoot,
 } from "/tmp/feedback-mark-settings-view.mjs";
+import { ANNOTE_VERSION } from "/tmp/feedback-mark-version.mjs";
 
 function data(overrides = {}) {
   return {
@@ -84,5 +84,7 @@ test("version footer matches package.json", async () => {
   const { readFile } = await import("node:fs/promises");
   const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(ANNOTE_VERSION, pkg.version, "settings-view version drifted from package.json");
-  assert.ok(renderSettingsRoot(data()).includes(`v${pkg.version}`), "version missing from settings root");
+  const html = renderSettingsRoot(data());
+  assert.ok(html.includes(`v${pkg.version}`), "version missing from settings root");
+  assert.ok(html.indexOf(`v${pkg.version}`) > html.indexOf("<h2>Settings</h2>"), "version not in header");
 });

@@ -41,6 +41,9 @@
     "access": "public"
   },
   "scripts": {
+    "sync-version": "node scripts/sync-version.mjs",
+    "prebuild": "npm run sync-version",
+    "pretest": "npm run sync-version",
     "build": "mkdir -p dist && tsc -p tsconfig.json --noEmit && esbuild src/annotator.ts --bundle --format=iife --target=es2020 --outfile=dist/annote.iife.js && cp dist/annote.iife.js dist/annotate.iife.js",
     "mcp:build": "tsc -p tsconfig.mcp.json --noEmit && esbuild packages/mcp/src/cli.ts --bundle --platform=node --format=esm --target=node18 --outfile=dist/mcp/cli.js && chmod +x dist/mcp/cli.js",
     "mcp:init": "npm run mcp:build && node dist/mcp/cli.js init",

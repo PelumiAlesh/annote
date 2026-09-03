@@ -27,6 +27,7 @@ esbuild("src/html-escape.ts", "/tmp/feedback-mark-html-escape.mjs", { platform: 
 esbuild("src/annotation-storage.ts", "/tmp/feedback-mark-annotation-storage.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/shortcuts.ts", "/tmp/feedback-mark-shortcuts.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/confirm-dialog.ts", "/tmp/feedback-mark-confirm-dialog.mjs", { platform: "browser", target: "es2020" });
+esbuild("src/version.ts", "/tmp/feedback-mark-version.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/settings-view.ts", "/tmp/feedback-mark-settings-view.mjs", { platform: "browser", target: "es2020" });
 
 // Node fixtures

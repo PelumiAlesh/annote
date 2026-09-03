@@ -32753,8 +32753,10 @@
     return null;
   }
 
-  // src/settings-view.ts
+  // src/version.ts
   var ANNOTE_VERSION = "0.1.6";
+
+  // src/settings-view.ts
   function mcpStatusLabel(status) {
     if (status === "connected") return "Connected";
     if (status === "permission-required") return "Permission needed";
@@ -32781,6 +32783,7 @@
         <div class="panel-title">
           <h2>Settings</h2>
         </div>
+        <span class="settings-version">v${ANNOTE_VERSION}</span>
       </div>
       <div class="settings-list">
         <section class="settings-section" aria-label="Behavior">
@@ -32807,7 +32810,6 @@
           </div>
         </section>
       </div>
-      <div class="settings-version">v${ANNOTE_VERSION}</div>
       ${data.noticeHtml}
     `;
   }
@@ -36701,7 +36703,7 @@
       }
       button, textarea, select, input { font: inherit; font-weight: 400; }
       button, select, label { cursor: pointer; font-weight: 400; }
-      .toolbar, .composer, .panel, .tip, .launcher-wrap {
+      .toolbar, .composer, .panel, .tip, .launcher-wrap, .confirm, .confirm-scrim {
         pointer-events: auto;
         background: #1a1a1a;
         border: 0;
@@ -36805,6 +36807,23 @@
         background: #232323;
         box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.24);
         outline: none;
+      }
+      .launcher-badge {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: var(--fm-orange);
+        color: #170700;
+        font-size: 10px;
+        font-weight: 600;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        display: grid;
+        place-items: center;
+        pointer-events: none;
       }
       .launcher-wrap.dragging { cursor: grabbing; }
       .launcher {
@@ -38870,7 +38889,7 @@
         white-space: nowrap;
       }
       .settings-version {
-        padding: 10px 12px 12px;
+        margin-left: auto;
         color: rgba(255,255,255,.38);
         font-size: 10px;
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -41327,10 +41346,12 @@
       const hideComposerForShiftSelect = state.shiftSelecting && state.selectedElements.length > 0;
       const editingAnnotation = state.editingId ? state.annotations.find((annotation) => annotation.id === state.editingId) : null;
       const collapsed = !state.toolbarOpen && !state.visible && !composerTarget;
+      const pendingCount = state.annotations.filter((annotation) => !["resolved", "dismissed"].includes(annotation.status || "pending")).length;
+      const launcherLabel = pendingCount ? `Open toolbar, ${pendingCount} annotation${pendingCount === 1 ? "" : "s"}` : "Click to open or hold to drag";
       if (state.toolbarRailPinnedToDefault) state.toolbarRailTop = defaultToolbarRailTop();
       const railTop = clampedToolbarRailTop(state.toolbarRailTop, TOOLBAR_RAIL_HEIGHT);
       const railStyle = `--fm-rail-top:${railTop}px`;
-      const markers = state.annotations.map((annotation, index) => {
+      const markers = collapsed ? "" : state.annotations.map((annotation, index) => {
         if (annotation.status === "resolved" || annotation.status === "dismissed") return "";
         const position = markerPosition(annotation);
         if (!position) return "";
@@ -41350,7 +41371,7 @@
       state.shadow.innerHTML = `
       <style>${styles()}</style>
       <div class="fm-layer ${state.active ? "active" : ""}">
-        ${collapsed ? `<div class="launcher-wrap ${state.toolbarDrag ? "dragging" : ""}" data-toolbar-rail data-action="open-toolbar" role="button" tabindex="0" aria-label="Click to open or hold to drag" data-tooltip="Click to open or hold to drag" style="${railStyle}"><span class="icon-btn launcher" aria-hidden="true">${icon("note")}</span></div>` : `<div class="toolbar ${state.toolbarOpening ? "opening" : ""} ${state.toolbarClosing ? "closing" : ""} ${state.toolbarTooltipsReady ? "tooltips-ready" : ""}" style="${railStyle}">
+        ${collapsed ? `<div class="launcher-wrap ${state.toolbarDrag ? "dragging" : ""}" data-toolbar-rail data-action="open-toolbar" role="button" tabindex="0" aria-label="${launcherLabel}" data-tooltip="${launcherLabel}" style="${railStyle}"><span class="icon-btn launcher" aria-hidden="true">${icon("note")}</span>${pendingCount ? `<span class="launcher-badge" aria-hidden="true">${pendingCount}</span>` : ""}</div>` : `<div class="toolbar ${state.toolbarOpening ? "opening" : ""} ${state.toolbarClosing ? "closing" : ""} ${state.toolbarTooltipsReady ? "tooltips-ready" : ""}" style="${railStyle}">
                 <div class="toolbar-controls">
                   ${iconButton("toggle-pick", state.active ? "Stop picking" : "Pick element", "target", "pick-toggle")}
                   ${iconButton("toggle-panel", `Review ${state.annotations.length}`, "note", state.visible && state.panelMode === "review" ? "active-control" : "")}
@@ -41370,7 +41391,7 @@
         <div class="structure-preview-outline hidden" data-structure-preview-outline></div>
         <div class="selection-outlines" data-selection-outlines></div>
         <div class="label hidden" data-hover-label></div>
-        ${markers}
+        ${collapsed ? "" : markers}
         ${composerTarget && composerPosition && !hideComposerForShiftSelect ? renderComposer(composerTarget, composerPosition, editingAnnotation || null) : ""}
         <section class="panel ${state.visible ? "" : "hidden"}" style="${railStyle}" aria-label="${state.panelMode === "settings" ? "Settings panel" : "Annotation review panel"}">
           ${renderPanelContent()}
@@ -41496,7 +41517,7 @@
       const root = state.shadow;
       if (!root) return;
       if (state.cssOpen) {
-        root.querySelectorAll(".css-name").forEach((label) => {
+        root.querySelectorAll(".css-name > span").forEach((label) => {
           const full = label.textContent?.trim() || "";
           if (full && label.scrollWidth > label.clientWidth + 1) label.setAttribute("data-tooltip", full);
           else label.removeAttribute("data-tooltip");

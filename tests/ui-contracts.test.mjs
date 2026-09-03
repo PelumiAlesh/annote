@@ -138,7 +138,13 @@ test("text buttons skip tooltips, icon-only keeps them", () => {
   assert.ok(segLine?.includes("text-align"), "icon-segment exception missing");
 });
 
+test("collapsed launcher carries the annotation count", () => {
+  assert.ok(src.includes("launcher-badge"), "badge markup missing");
+  assert.ok(src.includes("pendingCount"), "badge count missing");
+  assert.ok(src.includes(".launcher-badge"), "badge style missing");
+});
+
 test("truncated property labels expose full names", () => {
-  assert.ok(src.includes('".css-name"'), "truncation pass missing");
+  assert.ok(src.includes('".css-name > span"'), "truncation pass missing");
   assert.ok(src.includes("scrollWidth"), "overflow check missing");
 });

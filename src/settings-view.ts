@@ -1,13 +1,10 @@
 import type { AnnoteMcpState } from "./annote-mcp-client";
 import { escapeHtml } from "./html-escape";
 import type { FeedbackMarkSettings } from "./settings";
+import { ANNOTE_VERSION } from "./version";
 
 export type SettingsView = "root" | "mcp" | "help";
 export type McpConnectionStatus = AnnoteMcpState;
-
-// Single source of truth for the shipped version shown in Settings.
-// Pinned by tests/settings-view.test.mjs against package.json.
-export const ANNOTE_VERSION = "0.1.6";
 
 export type SettingsViewData = {
   settings: FeedbackMarkSettings;
@@ -51,6 +48,7 @@ export function renderSettingsRoot(data: SettingsViewData): string {
         <div class="panel-title">
           <h2>Settings</h2>
         </div>
+        <span class="settings-version">v${ANNOTE_VERSION}</span>
       </div>
       <div class="settings-list">
         <section class="settings-section" aria-label="Behavior">
@@ -77,7 +75,6 @@ export function renderSettingsRoot(data: SettingsViewData): string {
           </div>
         </section>
       </div>
-      <div class="settings-version">v${ANNOTE_VERSION}</div>
       ${data.noticeHtml}
     `;
 }
