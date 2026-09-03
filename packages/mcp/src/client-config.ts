@@ -1,5 +1,6 @@
-import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -87,6 +88,53 @@ function homedirSafe(): string {
     return homedir();
   } catch {
     return process.env.HOME || process.env.USERPROFILE || "";
+  }
+}
+
+/**
+ * Atomically replace a config file: write temp sibling + rename.
+ * Creates a `.annote-backup` copy before the first Annote mutation.
+ * Never leaves a half-written config at the target path.
+ */
+export async function safeWriteFile(path: string, content: string, mode = 0o600): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  let targetMode = mode;
+  let targetExists = false;
+  try {
+    const info = await stat(path);
+    targetExists = true;
+    if (typeof info.mode === "number") targetMode = info.mode & 0o777;
+  } catch {
+    targetExists = false;
+  }
+  if (targetExists) {
+    const backupPath = `${path}.annote-backup`;
+    try {
+      await access(backupPath);
+    } catch {
+      try {
+        await copyFile(path, backupPath);
+      } catch {
+        // Best effort — atomic replace below is still safer than in-place write.
+      }
+    }
+  }
+  const tmpPath = `${path}.annote-tmp-${process.pid}-${randomBytes(6).toString("hex")}`;
+  try {
+    await writeFile(tmpPath, content, { mode: targetMode });
+    try {
+      await chmod(tmpPath, targetMode);
+    } catch {
+      // Some platforms do not support chmod.
+    }
+    await rename(tmpPath, path);
+  } catch (error) {
+    try {
+      await unlink(tmpPath);
+    } catch {
+      // Ignore cleanup failure; original error matters.
+    }
+    throw error;
   }
 }
 
@@ -532,9 +580,8 @@ async function configureCodex(path: string): Promise<"added" | "exists"> {
     current = await readFile(path, "utf8");
   } catch {}
   if (/\[mcp_servers\.annote\]/.test(current)) return "exists";
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const next = `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${tomlEntry()}`;
-  await writeFile(path, `${next.trimEnd()}\n`);
+  await safeWriteFile(path, `${next.trimEnd()}\n`);
   return "added";
 }
 
@@ -575,8 +622,7 @@ async function configureJsonMcp(path: string, key = "mcpServers"): Promise<"adde
   const nextServers = { ...((servers as Record<string, unknown>) || {}) };
   if (nextServers.annote) return "exists";
   nextServers.annote = jsonEntry();
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify({ ...root, [key]: nextServers }, null, 2)}\n`);
+  await safeWriteFile(path, `${JSON.stringify({ ...root, [key]: nextServers }, null, 2)}\n`);
   return "added";
 }
 
@@ -597,16 +643,17 @@ async function configureHermesYaml(path: string): Promise<"added" | "exists" | "
   if (!content.trim()) {
     next = entry;
   } else if (content.includes("mcp_servers:")) {
-    // Append annote under mcp_servers
+    // Append annote under mcp_servers. If the shape is unfamiliar, stop
+    // rather than risk duplicating/corrupting hand-edited YAML.
     next = content.replace(/mcp_servers:\s*\n/, `mcp_servers:\n  annote:\n    command: "npx"\n    args: ["-y", "annote", "server"]\n`);
-    // If replacement didn't add, fallback to append
+    // If replacement didn't apply cleanly, emit manual instructions.
     if (next === content) {
-      next = `${content.trimEnd()}\n\n${entry}`;
+      return "manual";
     }
   } else {
     next = `${content.trimEnd()}\n\n${entry}`;
   }
-  await writeFile(path, next);
+  await safeWriteFile(path, next);
   return "added";
 }
 
@@ -649,8 +696,7 @@ async function configureOpenCodeJson(path: string): Promise<"added" | "exists" |
     mcp.annote = { command: "npx", args: ["-y", "annote", "server"] };
     nextRoot = { ...root, mcp };
   }
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify(nextRoot, null, 2)}\n`);
+  await safeWriteFile(path, `${JSON.stringify(nextRoot, null, 2)}\n`);
   return "added";
 }
 
@@ -671,8 +717,7 @@ async function configureVsCodeJson(path: string): Promise<"added" | "exists" | "
   const nextServers = { ...((servers as Record<string, unknown>) || {}) };
   if (nextServers.annote) return "exists";
   nextServers.annote = vsCodeEntry();
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify({ ...root, servers: nextServers }, null, 2)}\n`);
+  await safeWriteFile(path, `${JSON.stringify({ ...root, servers: nextServers }, null, 2)}\n`);
   return "added";
 }
 
@@ -692,7 +737,6 @@ async function configureKiloJson(path: string): Promise<"added" | "exists" | "ma
   if (!root || typeof root !== "object" || Array.isArray(root)) return "manual";
   const mcp = { ...((root.mcp as Record<string, unknown>) || {}) };
   mcp.annote = kiloEntry();
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify({ ...root, mcp }, null, 2)}\n`);
+  await safeWriteFile(path, `${JSON.stringify({ ...root, mcp }, null, 2)}\n`);
   return "added";
 }

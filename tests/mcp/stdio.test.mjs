@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,11 +7,22 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+async function resolveCliPath() {
+  // Hermetic fixture built by scripts/build-test-fixtures.mjs; fall back to
+  // the tracked dist build for ad-hoc runs without the fixture step.
+  try {
+    const pinned = (await readFile("/tmp/annote-test-cli-path", "utf8")).trim();
+    if (pinned) return pinned;
+  } catch {}
+  return "dist/mcp/cli.js";
+}
+
 test("stdio MCP server initializes, lists tools, and invokes a read tool", async () => {
   const dir = await mkdtemp(join(tmpdir(), "annote-stdio-"));
+  const cliPath = await resolveCliPath();
   const transport = new StdioClientTransport({
     command: "node",
-    args: ["dist/mcp/cli.js", "server", "--port", "0"],
+    args: [cliPath, "server", "--port", "0"],
     cwd: process.cwd(),
     stderr: "pipe",
     env: {

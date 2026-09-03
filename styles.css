@@ -409,7 +409,8 @@ footer.footer.shell { border-top-width: 0; }
 @media (max-width: 760px) {
   .shell { width: min(100% - 28px, 1160px); }
   .site-header { min-height: 62px; }
-  .nav a:not(:last-child) { display: none; }
+  .nav { gap: 14px; overflow-x: auto; white-space: nowrap; }
+  .nav a { font-size: 11px; }
   .hero { padding: 82px 0 64px; }
   .hero h1 { font-size: clamp(52px, 16vw, 86px); line-height: 1.02; }
   .quick, .section { grid-template-columns: 1fr; }

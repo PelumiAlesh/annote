@@ -23,16 +23,25 @@ esbuild("src/ui-label.ts", "/tmp/feedback-mark-ui-label.mjs", { platform: "brows
 esbuild("src/settings.ts", "/tmp/feedback-mark-settings.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/background-helpers.ts", "/tmp/feedback-mark-background-helpers.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/structure-helpers.ts", "/tmp/feedback-mark-structure-helpers.mjs", { platform: "browser", target: "es2020" });
+esbuild("src/html-escape.ts", "/tmp/feedback-mark-html-escape.mjs", { platform: "browser", target: "es2020" });
+esbuild("src/annotation-storage.ts", "/tmp/feedback-mark-annotation-storage.mjs", { platform: "browser", target: "es2020" });
+esbuild("src/shortcuts.ts", "/tmp/feedback-mark-shortcuts.mjs", { platform: "browser", target: "es2020" });
+esbuild("src/confirm-dialog.ts", "/tmp/feedback-mark-confirm-dialog.mjs", { platform: "browser", target: "es2020" });
 
 // Node fixtures
 esbuild("packages/mcp/src/client-config.ts", "/tmp/feedback-mark-mcp-client-config.mjs", { platform: "node", target: "node18" });
 esbuild("packages/protocol/src/index.ts", "/tmp/annote-protocol.mjs", { platform: "node", target: "node18" });
 esbuild("packages/mcp/src/index.ts", "/tmp/annote-mcp.mjs", { platform: "node", target: "node18" });
 
-// Ensure dist/mcp/cli.js is built for stdio test
-run("tsc", ["-p", "tsconfig.mcp.json", "--noEmit"]);
-mkdirSync("dist/mcp", { recursive: true });
-run("esbuild", ["packages/mcp/src/cli.ts", "--bundle", "--platform=node", "--format=esm", "--target=node18", "--outfile=dist/mcp/cli.js"]);
-run("chmod", ["+x", "dist/mcp/cli.js"]);
+// Hermetic stdio fixture: build the CLI to a temp path outside the repo so
+// `npm test` never mutates tracked release files under dist/.
+// The stdio test resolves this path via /tmp/annote-test-cli-path.
+import { writeFileSync } from "node:fs";
+
+const testDistDir = "/tmp/annote-test-dist/mcp";
+mkdirSync(testDistDir, { recursive: true });
+run("esbuild", ["packages/mcp/src/cli.ts", "--bundle", "--platform=node", "--format=esm", "--target=node18", `--outfile=${testDistDir}/cli.js`]);
+run("chmod", ["+x", `${testDistDir}/cli.js`]);
+writeFileSync("/tmp/annote-test-cli-path", `${testDistDir}/cli.js\n`);
 
 console.log("Test fixtures built");

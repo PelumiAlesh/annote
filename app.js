@@ -98,6 +98,10 @@ document.querySelectorAll("[data-copy]").forEach((button) => {
   button.addEventListener("click", () => copyText(button.dataset.copy || ""));
 });
 
+document.querySelectorAll("[data-copy-bookmarklet]").forEach((button) => {
+  button.addEventListener("click", () => copyText(bookmarkletCode));
+});
+
 document.querySelectorAll("[data-copy-target]").forEach((button) => {
   button.addEventListener("click", () => {
     const target = document.querySelector(button.dataset.copyTarget || "");

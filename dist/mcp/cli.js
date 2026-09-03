@@ -7561,17 +7561,58 @@ var SessionStore = class {
 
 // packages/mcp/src/bridge-server.ts
 var MAX_BODY_BYTES = 2e6;
+var HttpError = class extends Error {
+  constructor(status2, message) {
+    super(message);
+    this.status = status2;
+  }
+};
+function isLoopbackHost(hostHeader, activePort) {
+  if (Array.isArray(hostHeader) || !hostHeader) return false;
+  const host = hostHeader.trim().toLowerCase();
+  if (!host) return false;
+  let hostname3 = host;
+  let port = null;
+  if (host.startsWith("[")) {
+    const close = host.indexOf("]");
+    if (close === -1) return false;
+    hostname3 = host.slice(0, close + 1);
+    const rest = host.slice(close + 1);
+    if (rest.startsWith(":")) port = rest.slice(1);
+    else if (rest) return false;
+  } else {
+    const lastColon = host.lastIndexOf(":");
+    if (lastColon !== -1) {
+      if (host.indexOf(":") !== lastColon) return false;
+      hostname3 = host.slice(0, lastColon);
+      port = host.slice(lastColon + 1);
+    }
+  }
+  const allowed = hostname3 === "127.0.0.1" || hostname3 === "localhost" || hostname3 === "::1" || hostname3 === "[::1]";
+  if (!allowed) return false;
+  if (port !== null && port !== "") {
+    if (!/^\d+$/.test(port)) return false;
+    if (Number(port) !== activePort) return false;
+  }
+  return true;
+}
+var SSE_HEARTBEAT_MS = 15e3;
 async function readJson(request) {
   const chunks = [];
   let total = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.byteLength;
-    if (total > MAX_BODY_BYTES) throw new Error("Request body is too large");
+    if (total > MAX_BODY_BYTES) throw new HttpError(413, "Request body is too large");
     chunks.push(buffer);
   }
   const text = Buffer.concat(chunks).toString("utf8");
-  return text ? JSON.parse(text) : {};
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new HttpError(400, "Malformed JSON body");
+  }
 }
 function sendJson(response, status2, body, headers = {}) {
   response.writeHead(status2, {
@@ -7680,6 +7721,10 @@ async function createBridgeServer(config2, options = {}) {
   const server = http.createServer(async (request, response) => {
     try {
       const url2 = new URL(request.url || "/", bridgeBaseUrl(activePort));
+      if (!isLoopbackHost(request.headers.host, activePort)) {
+        sendJson(response, 403, { error: "Invalid Host" });
+        return;
+      }
       if (request.method === "OPTIONS") {
         if (url2.pathname === "/health") {
           response.writeHead(204, publicCorsHeaders(request));
@@ -7772,13 +7817,7 @@ async function createBridgeServer(config2, options = {}) {
         const sessionId2 = sessionMatch[1];
         const protectedCors = await protectedHeaders(request);
         if (!protectedCors) {
-          response.writeHead(204, {
-            ...publicCorsHeaders(request),
-            "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
-            "access-control-allow-headers": "content-type,x-annote-session-token",
-            "access-control-allow-private-network": "true"
-          });
-          response.end();
+          sendJson(response, 403, { error: "Origin is not approved" }, publicCorsHeaders(request));
           return;
         }
         const token = request.headers["x-annote-session-token"] || url2.searchParams.get("token");
@@ -7792,7 +7831,22 @@ async function createBridgeServer(config2, options = {}) {
           response.writeHead(200, eventStreamHeaders(protectedCors.origin));
           writeSse(response, bus.event({ type: "connected", instanceId }));
           const unsubscribe = bus.subscribe(sessionId2, (event) => writeSse(response, event));
-          request.on("close", unsubscribe);
+          const heartbeat = setInterval(() => {
+            try {
+              response.write(": heartbeat\n\n");
+            } catch {
+            }
+          }, SSE_HEARTBEAT_MS);
+          heartbeat.unref?.();
+          let cleaned = false;
+          const cleanup = () => {
+            if (cleaned) return;
+            cleaned = true;
+            clearInterval(heartbeat);
+            unsubscribe();
+          };
+          request.on("close", cleanup);
+          response.on("close", cleanup);
           return;
         }
         if (request.method === "PUT") {
@@ -7820,8 +7874,18 @@ async function createBridgeServer(config2, options = {}) {
       }
       sendJson(response, 404, { error: "Not found" });
     } catch (error61) {
-      const message = error61 instanceof Error ? error61.message : "Unknown bridge error";
-      sendJson(response, 500, { error: message });
+      if (response.headersSent) {
+        try {
+          response.destroy();
+        } catch {
+        }
+        return;
+      }
+      if (error61 instanceof HttpError) {
+        sendJson(response, error61.status, { error: error61.message });
+        return;
+      }
+      sendJson(response, 500, { error: "Internal error" });
     }
   });
   await new Promise((resolve, reject) => {
@@ -7933,8 +7997,9 @@ var BridgeClient = class {
 };
 
 // packages/mcp/src/client-config.ts
-import { access, mkdir as mkdir3, readFile as readFile3, stat, writeFile as writeFile3 } from "node:fs/promises";
+import { access, chmod as chmod3, copyFile, mkdir as mkdir3, readFile as readFile3, rename, stat, unlink, writeFile as writeFile3 } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { randomBytes as randomBytes4 } from "node:crypto";
 import { promisify } from "node:util";
 import { homedir as homedir2 } from "node:os";
 import { dirname as dirname3, join as join2 } from "node:path";
@@ -7991,6 +8056,44 @@ function homedirSafe() {
     return homedir2();
   } catch {
     return process.env.HOME || process.env.USERPROFILE || "";
+  }
+}
+async function safeWriteFile(path, content, mode = 384) {
+  await mkdir3(dirname3(path), { recursive: true, mode: 448 });
+  let targetMode = mode;
+  let targetExists = false;
+  try {
+    const info = await stat(path);
+    targetExists = true;
+    if (typeof info.mode === "number") targetMode = info.mode & 511;
+  } catch {
+    targetExists = false;
+  }
+  if (targetExists) {
+    const backupPath = `${path}.annote-backup`;
+    try {
+      await access(backupPath);
+    } catch {
+      try {
+        await copyFile(path, backupPath);
+      } catch {
+      }
+    }
+  }
+  const tmpPath = `${path}.annote-tmp-${process.pid}-${randomBytes4(6).toString("hex")}`;
+  try {
+    await writeFile3(tmpPath, content, { mode: targetMode });
+    try {
+      await chmod3(tmpPath, targetMode);
+    } catch {
+    }
+    await rename(tmpPath, path);
+  } catch (error61) {
+    try {
+      await unlink(tmpPath);
+    } catch {
+    }
+    throw error61;
   }
 }
 function codexAdapter() {
@@ -8407,9 +8510,8 @@ async function configureCodex(path) {
   } catch {
   }
   if (/\[mcp_servers\.annote\]/.test(current)) return "exists";
-  await mkdir3(dirname3(path), { recursive: true, mode: 448 });
   const next = `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${tomlEntry()}`;
-  await writeFile3(path, `${next.trimEnd()}
+  await safeWriteFile(path, `${next.trimEnd()}
 `);
   return "added";
 }
@@ -8444,8 +8546,7 @@ async function configureJsonMcp(path, key = "mcpServers") {
   const nextServers = { ...servers || {} };
   if (nextServers.annote) return "exists";
   nextServers.annote = jsonEntry();
-  await mkdir3(dirname3(path), { recursive: true, mode: 448 });
-  await writeFile3(path, `${JSON.stringify({ ...root, [key]: nextServers }, null, 2)}
+  await safeWriteFile(path, `${JSON.stringify({ ...root, [key]: nextServers }, null, 2)}
 `);
   return "added";
 }
@@ -8475,16 +8576,14 @@ async function configureHermesYaml(path) {
     args: ["-y", "annote", "server"]
 `);
     if (next === content) {
-      next = `${content.trimEnd()}
-
-${entry}`;
+      return "manual";
     }
   } else {
     next = `${content.trimEnd()}
 
 ${entry}`;
   }
-  await writeFile3(path, next);
+  await safeWriteFile(path, next);
   return "added";
 }
 async function configureOpenCodeJson(path) {
@@ -8523,8 +8622,7 @@ async function configureOpenCodeJson(path) {
     mcp.annote = { command: "npx", args: ["-y", "annote", "server"] };
     nextRoot = { ...root, mcp };
   }
-  await mkdir3(dirname3(path), { recursive: true, mode: 448 });
-  await writeFile3(path, `${JSON.stringify(nextRoot, null, 2)}
+  await safeWriteFile(path, `${JSON.stringify(nextRoot, null, 2)}
 `);
   return "added";
 }
@@ -8545,8 +8643,7 @@ async function configureVsCodeJson(path) {
   const nextServers = { ...servers || {} };
   if (nextServers.annote) return "exists";
   nextServers.annote = vsCodeEntry();
-  await mkdir3(dirname3(path), { recursive: true, mode: 448 });
-  await writeFile3(path, `${JSON.stringify({ ...root, servers: nextServers }, null, 2)}
+  await safeWriteFile(path, `${JSON.stringify({ ...root, servers: nextServers }, null, 2)}
 `);
   return "added";
 }
@@ -8566,8 +8663,7 @@ async function configureKiloJson(path) {
   if (!root || typeof root !== "object" || Array.isArray(root)) return "manual";
   const mcp = { ...root.mcp || {} };
   mcp.annote = kiloEntry();
-  await mkdir3(dirname3(path), { recursive: true, mode: 448 });
-  await writeFile3(path, `${JSON.stringify({ ...root, mcp }, null, 2)}
+  await safeWriteFile(path, `${JSON.stringify({ ...root, mcp }, null, 2)}
 `);
   return "added";
 }

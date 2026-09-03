@@ -20,17 +20,64 @@ type JsonResponse = Record<string, unknown> | Array<unknown>;
 
 const MAX_BODY_BYTES = 2_000_000;
 
+export class HttpError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export function isLoopbackHost(hostHeader: string | string[] | undefined, activePort: number): boolean {
+  if (Array.isArray(hostHeader) || !hostHeader) return false;
+  const host = hostHeader.trim().toLowerCase();
+  if (!host) return false;
+  // Split host / port, accounting for IPv6 literals like [::1]:4747.
+  let hostname = host;
+  let port: string | null = null;
+  if (host.startsWith("[")) {
+    const close = host.indexOf("]");
+    if (close === -1) return false;
+    hostname = host.slice(0, close + 1);
+    const rest = host.slice(close + 1);
+    if (rest.startsWith(":")) port = rest.slice(1);
+    else if (rest) return false;
+  } else {
+    const lastColon = host.lastIndexOf(":");
+    // Single colon => host:port. Multiple colons without brackets => invalid.
+    if (lastColon !== -1) {
+      if (host.indexOf(":") !== lastColon) return false;
+      hostname = host.slice(0, lastColon);
+      port = host.slice(lastColon + 1);
+    }
+  }
+  const allowed = hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
+  if (!allowed) return false;
+  if (port !== null && port !== "") {
+    if (!/^\d+$/.test(port)) return false;
+    if (Number(port) !== activePort) return false;
+  }
+  return true;
+}
+
+export const SSE_HEARTBEAT_MS = 15_000;
+
 export async function readJson<T = unknown>(request: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.byteLength;
-    if (total > MAX_BODY_BYTES) throw new Error("Request body is too large");
+    if (total > MAX_BODY_BYTES) throw new HttpError(413, "Request body is too large");
     chunks.push(buffer);
   }
   const text = Buffer.concat(chunks).toString("utf8");
-  return text ? (JSON.parse(text) as T) : ({} as T);
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new HttpError(400, "Malformed JSON body");
+  }
 }
 
 function sendJson(response: ServerResponse, status: number, body: JsonResponse, headers: Record<string, string> = {}): void {
@@ -151,6 +198,11 @@ export async function createBridgeServer(config: AnnoteConfig, options: { port?:
     try {
       const url = new URL(request.url || "/", bridgeBaseUrl(activePort));
 
+      if (!isLoopbackHost(request.headers.host, activePort)) {
+        sendJson(response, 403, { error: "Invalid Host" });
+        return;
+      }
+
       if (request.method === "OPTIONS") {
         if (url.pathname === "/health") {
           response.writeHead(204, publicCorsHeaders(request));
@@ -249,13 +301,7 @@ export async function createBridgeServer(config: AnnoteConfig, options: { port?:
         const sessionId = sessionMatch[1];
         const protectedCors = await protectedHeaders(request);
         if (!protectedCors) {
-          response.writeHead(204, {
-            ...publicCorsHeaders(request),
-            "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
-            "access-control-allow-headers": "content-type,x-annote-session-token",
-            "access-control-allow-private-network": "true",
-          });
-          response.end();
+          sendJson(response, 403, { error: "Origin is not approved" }, publicCorsHeaders(request));
           return;
         }
         const token = request.headers["x-annote-session-token"] || url.searchParams.get("token");
@@ -269,7 +315,24 @@ export async function createBridgeServer(config: AnnoteConfig, options: { port?:
           response.writeHead(200, eventStreamHeaders(protectedCors.origin));
           writeSse(response, bus.event({ type: "connected", instanceId }));
           const unsubscribe = bus.subscribe(sessionId, (event) => writeSse(response, event));
-          request.on("close", unsubscribe);
+          const heartbeat = setInterval(() => {
+            try {
+              response.write(": heartbeat\n\n");
+            } catch {
+              // Client gone; cleanup below handles it.
+            }
+          }, SSE_HEARTBEAT_MS);
+          // Avoid keeping the process alive for idle SSE connections alone.
+          heartbeat.unref?.();
+          let cleaned = false;
+          const cleanup = (): void => {
+            if (cleaned) return;
+            cleaned = true;
+            clearInterval(heartbeat);
+            unsubscribe();
+          };
+          request.on("close", cleanup);
+          response.on("close", cleanup);
           return;
         }
         if (request.method === "PUT") {
@@ -299,8 +362,19 @@ export async function createBridgeServer(config: AnnoteConfig, options: { port?:
 
       sendJson(response, 404, { error: "Not found" });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown bridge error";
-      sendJson(response, 500, { error: message });
+      if (response.headersSent) {
+        try {
+          response.destroy();
+        } catch {
+          // Ignore — connection already gone.
+        }
+        return;
+      }
+      if (error instanceof HttpError) {
+        sendJson(response, error.status, { error: error.message });
+        return;
+      }
+      sendJson(response, 500, { error: "Internal error" });
     }
   });
 

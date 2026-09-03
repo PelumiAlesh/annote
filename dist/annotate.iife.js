@@ -32630,6 +32630,129 @@
     }
   }
 
+  // src/html-escape.ts
+  function escapeHtml(value) {
+    return value.replace(/[&<>"']/g, (char) => {
+      const map = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      };
+      return map[char] || char;
+    });
+  }
+
+  // src/annotation-storage.ts
+  var MAX_STORED_ANNOTATIONS = 500;
+  var MAX_STORED_JSON_BYTES = 1e6;
+  var MAX_STORED_ANNOTATION_BYTES = 1e5;
+  var MAX_STORED_STRING = 5e3;
+  var MAX_STORED_THREAD = 50;
+  var VALID_STATUS = /* @__PURE__ */ new Set(["pending", "acknowledged", "resolved", "dismissed", "detached"]);
+  function isString(value, max = MAX_STORED_STRING) {
+    return typeof value === "string" && value.length <= max;
+  }
+  function isOptionalString(value, max = MAX_STORED_STRING) {
+    return value === void 0 || isString(value, max);
+  }
+  function record(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  }
+  function validThread(value) {
+    if (value === void 0) return true;
+    if (!Array.isArray(value) || value.length > MAX_STORED_THREAD) return false;
+    return value.every((item) => {
+      const raw = record(item);
+      return isString(raw.id, 160) && isString(raw.content, MAX_STORED_STRING) && (raw.role === "human" || raw.role === "agent" || raw.role === void 0);
+    });
+  }
+  function validStyleEdits(value) {
+    if (value === void 0) return true;
+    if (!Array.isArray(value) || value.length > 64) return false;
+    return value.every((item) => {
+      const raw = record(item);
+      return isString(raw.property, 100) && isString(raw.value, 1e3) && isOptionalString(raw.originalValue, 1e3);
+    });
+  }
+  function isValidStoredAnnotation(value) {
+    const raw = record(value);
+    if (!isString(raw.id, 160) || !raw.id) return false;
+    if (!isString(raw.elementPath, 1e3) || !raw.elementPath) return false;
+    if (raw.status !== void 0 && !(typeof raw.status === "string" && VALID_STATUS.has(raw.status))) return false;
+    if (!isOptionalString(raw.comment)) return false;
+    if (!isOptionalString(raw.element, 500)) return false;
+    if (!validThread(raw.thread)) return false;
+    if (!validStyleEdits(raw.styleEdits)) return false;
+    try {
+      if (JSON.stringify(value).length > MAX_STORED_ANNOTATION_BYTES) return false;
+    } catch {
+      return false;
+    }
+    return true;
+  }
+  function sanitizeStoredAnnotations(raw) {
+    if (!Array.isArray(raw)) return { valid: [], skipped: Array.isArray(raw) ? 0 : 1 };
+    try {
+      if (JSON.stringify(raw).length > MAX_STORED_JSON_BYTES) {
+      }
+    } catch {
+      return { valid: [], skipped: raw.length };
+    }
+    const valid = [];
+    let skipped = 0;
+    for (const item of raw.slice(0, MAX_STORED_ANNOTATIONS)) {
+      if (isValidStoredAnnotation(item)) valid.push(item);
+      else skipped += 1;
+    }
+    if (raw.length > MAX_STORED_ANNOTATIONS) skipped += raw.length - MAX_STORED_ANNOTATIONS;
+    return { valid, skipped };
+  }
+
+  // src/confirm-dialog.ts
+  function confirmDialogContent(kind, details = {}) {
+    if (kind === "delete-current") {
+      return {
+        title: "Delete this annotation?",
+        body: details.elementLabel ? `This removes your annotation on \u201C${details.elementLabel}\u201D.` : "This removes the annotation you are editing.",
+        cancelLabel: "Cancel",
+        confirmLabel: "Delete"
+      };
+    }
+    const count = Math.max(1, details.count || 1);
+    return {
+      title: "Delete all annotations?",
+      body: count === 1 ? "This removes the annotation on this page." : `This removes all ${count} annotations on this page.`,
+      cancelLabel: "Cancel",
+      confirmLabel: "Delete"
+    };
+  }
+  var CONFIRM_INITIAL_FOCUS = "cancel";
+
+  // src/shortcuts.ts
+  function isMacPlatform(platform) {
+    return /mac/i.test(platform || "");
+  }
+  function shortcutLabel(action, isMac) {
+    if (action === "toggle-pick") return isMac ? "\u2318\u2325P" : "Ctrl+Alt+P";
+    if (action === "copy") return isMac ? "\u2318\u2325C" : "Ctrl+Alt+C";
+    return isMac ? "\u2318\u232B" : "Ctrl+Backspace";
+  }
+  function modHeld(event) {
+    return event.ctrlKey || event.metaKey;
+  }
+  function matchGlobalShortcut(event) {
+    if (!modHeld(event)) return null;
+    if (event.key === "Backspace" && !event.altKey && !event.shiftKey) return "delete";
+    const code2 = event.code || "";
+    if (event.altKey && !event.shiftKey) {
+      if (code2 === "KeyP") return "toggle-pick";
+      if (code2 === "KeyC") return "copy";
+    }
+    return null;
+  }
+
   // src/ui-label.ts
   function formatUiLabel(component, fallback) {
     return component ? `<${component}>` : fallback;
@@ -33984,11 +34107,49 @@
     if (srcIndex >= 0) return cleaned.slice(srcIndex + 1);
     return cleaned.replace(/^\/src\//, "src/");
   }
-  function record(value) {
+  function record2(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
   }
+  var MAX_MOTION_PATCHES = 16;
+  var MAX_TRANSPORT_DEPTH = 6;
+  var MAX_TRANSPORT_KEYS = 64;
+  var MAX_TRANSPORT_ARRAY = 64;
+  var MAX_TRANSPORT_STRING = 2e3;
+  var MAX_TRANSPORT_JSON_BYTES = 1e5;
+  function sanitizeTransportValue(value, budget = MAX_TRANSPORT_JSON_BYTES, depth = 0) {
+    if (value === null || value === void 0) return void 0;
+    if (typeof value === "string") return value.slice(0, MAX_TRANSPORT_STRING);
+    if (typeof value === "number" || typeof value === "boolean") return Number.isFinite(value) ? value : void 0;
+    if (depth >= MAX_TRANSPORT_DEPTH) return void 0;
+    if (Array.isArray(value)) {
+      const out = [];
+      for (const item of value.slice(0, MAX_TRANSPORT_ARRAY)) {
+        const cleaned = sanitizeTransportValue(item, budget, depth + 1);
+        if (cleaned !== void 0) out.push(cleaned);
+      }
+      return out;
+    }
+    if (typeof value === "object") {
+      const entries = Object.entries(value).slice(0, MAX_TRANSPORT_KEYS);
+      const out = {};
+      for (const [key, item] of entries) {
+        if (typeof key !== "string" || key.length > 160) continue;
+        const cleaned = sanitizeTransportValue(item, budget, depth + 1);
+        if (cleaned !== void 0) out[key.slice(0, 160)] = cleaned;
+      }
+      const keys = Object.keys(out);
+      if (!keys.length) return void 0;
+      try {
+        if (JSON.stringify(out).length > budget) return void 0;
+      } catch {
+        return void 0;
+      }
+      return out;
+    }
+    return void 0;
+  }
   function box(value) {
-    const raw = record(value);
+    const raw = record2(value);
     const x2 = Number(raw.x);
     const y3 = Number(raw.y);
     const width = Number(raw.width);
@@ -33997,7 +34158,7 @@
     return { x: x2, y: y3, width, height };
   }
   function sourceFrom(value) {
-    const raw = record(value);
+    const raw = record2(value);
     const fileName = cleanString(raw.fileName, 500);
     if (!fileName) return void 0;
     const lineNumber = Number(raw.lineNumber);
@@ -34011,10 +34172,10 @@
     };
   }
   function reactFrom(value) {
-    const raw = record(value);
+    const raw = record2(value);
     const component = cleanString(raw.component, 160);
     const stack = Array.isArray(raw.stack) ? raw.stack.flatMap((frame) => {
-      const item = record(frame);
+      const item = record2(frame);
       const name50 = cleanString(item.name, 160);
       return name50 ? [{ name: name50, key: cleanString(item.key, 160), source: sourceFrom(item.source) }] : [];
     }).slice(0, 6) : void 0;
@@ -34025,7 +34186,7 @@
   function styleEditsFrom(value) {
     if (!Array.isArray(value)) return void 0;
     const edits = value.flatMap((item) => {
-      const raw = record(item);
+      const raw = record2(item);
       const property2 = cleanString(raw.property, 100);
       const next = cleanString(raw.value, 300);
       if (!property2 || next === void 0 || SENSITIVE_FIELD_PATTERN.test(property2)) return [];
@@ -34041,14 +34202,16 @@
   }
   function motionPatchesFrom(annotation) {
     const raw = Array.isArray(annotation.animationPatches) ? annotation.animationPatches : annotation.animationPatch ? [annotation.animationPatch] : [];
-    const patches = raw.map((item) => {
-      const patch = record(item);
+    const patches = raw.slice(0, MAX_MOTION_PATCHES).map((item) => {
+      const patch = record2(item);
+      const keyframes = sanitizeTransportValue(patch.keyframes, MAX_TRANSPORT_JSON_BYTES / 4);
+      const timing = sanitizeTransportValue(patch.timing, MAX_TRANSPORT_JSON_BYTES / 4);
       return {
         id: cleanString(patch.id, 160),
         label: cleanString(patch.label, 240),
         source: cleanString(patch.source, 240),
-        keyframes: patch.keyframes && typeof patch.keyframes === "object" ? patch.keyframes : void 0,
-        timing: patch.timing && typeof patch.timing === "object" ? patch.timing : void 0,
+        keyframes: keyframes === void 0 ? void 0 : keyframes,
+        timing: timing === void 0 ? void 0 : timing,
         cssText: cleanString(patch.cssText, 2e3),
         summary: cleanString(patch.summary, 500)
       };
@@ -34068,7 +34231,7 @@
       return fallbackComment ? [{ id: "msg_initial", role: "human", content: fallbackComment, timestamp: fallbackTime }] : [];
     }
     return value.map((item, index) => {
-      const raw = record(item);
+      const raw = record2(item);
       const content = cleanString(raw.content, 2e3);
       if (!content) return null;
       return {
@@ -34093,7 +34256,7 @@
   function targetsFrom(annotation) {
     const rawTargets = Array.isArray(annotation.multiSelectElements) ? annotation.multiSelectElements : Array.isArray(annotation.targets) ? annotation.targets : [];
     const targets = rawTargets.flatMap((item) => {
-      const raw = record(item);
+      const raw = record2(item);
       const selector2 = cleanString(raw.elementPath, 500) || cleanString(raw.selector, 500);
       const element = cleanString(raw.element, 240);
       return selector2 && element ? [{
@@ -34109,7 +34272,7 @@
     return targets.length ? targets : void 0;
   }
   function annotationToDTO(value) {
-    const raw = record(value);
+    const raw = record2(value);
     const id = cleanString(raw.id, 160);
     if (!id) return null;
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -34349,18 +34512,28 @@
     const COLORIS_SCRIPT_ID = "annote-coloris-script";
     const COLORIS_CSS_URL = "https://cdn.jsdelivr.net/gh/mdbassit/Coloris@v0.25.0/dist/coloris.min.css";
     const COLORIS_JS_URL = "https://cdn.jsdelivr.net/gh/mdbassit/Coloris@v0.25.0/dist/coloris.min.js";
+    const COLORIS_CSS_INTEGRITY = "sha384-DY3umZptOgjUNshBFbvu1+3RVFPoD1/CgGcc1yyJ77/aFOJ7jtN4BORnz/D/xF0n";
+    const COLORIS_JS_INTEGRITY = "sha384-olpkBKjEFqOOAAUzqL1y4xnKDCVmmXNaoRDWmHnRTutomMnUySX9hqDgVQVcvMdc";
     const STORAGE_PREFIX = "annote:annotations:";
     const LEGACY_STORAGE_PREFIX = "feedback-mark:annotations:";
     const Z_INDEX = 2147483646;
     const TOOLBAR_RAIL_HEIGHT = 264;
     const TOOLBAR_COLLAPSED_HEIGHT = 58;
     const SHIELD_ID = "annote-interaction-shield";
+    const IS_MAC = typeof navigator !== "undefined" && isMacPlatform(navigator.platform);
     const SHORTCUTS = {
-      "toggle-pick": "P",
-      copy: "C",
-      clear: "\u232B",
-      "delete-current": "\u232B"
+      "toggle-pick": shortcutLabel("toggle-pick", IS_MAC),
+      copy: shortcutLabel("copy", IS_MAC),
+      clear: shortcutLabel("delete", IS_MAC),
+      "delete-current": shortcutLabel("delete-current", IS_MAC)
     };
+    function isPanelControlFocused() {
+      const active = state.shadow?.activeElement || document.activeElement;
+      if (!active || !(active instanceof HTMLElement)) return false;
+      if (!state.rootHost?.contains(active) && active !== document.activeElement) return false;
+      if (!isAnnotatorNode(active)) return false;
+      return active instanceof HTMLButtonElement || active.getAttribute?.("role") === "button" || active.hasAttribute?.("data-action");
+    }
     function isTypingInInput(target) {
       const element = target instanceof HTMLElement ? target : null;
       if (element) {
@@ -34377,8 +34550,40 @@
       }
       return false;
     }
+    function handleGlobalShortcut(event) {
+      if (isTypingInInput(event.target)) return false;
+      const action = matchGlobalShortcut(event);
+      if (!action) return false;
+      if ((action === "toggle-pick" || action === "copy") && isPanelControlFocused()) return false;
+      if (action === "toggle-pick") {
+        event.preventDefault();
+        togglePick();
+        return true;
+      }
+      if (action === "copy") {
+        if (unresolvedAnnotations().length) {
+          event.preventDefault();
+          void copyMarkdown();
+        }
+        return true;
+      }
+      if (state.editingId) {
+        event.preventDefault();
+        requestDeleteCurrent();
+        return true;
+      }
+      if (state.annotations.length) {
+        event.preventDefault();
+        requestClearAnnotations();
+        return true;
+      }
+      return true;
+    }
     function shortcutForAction(action) {
       return action ? SHORTCUTS[action] || null : null;
+    }
+    function prefersReducedMotion() {
+      return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     }
     function shortcutForControl(control) {
       const action = control.getAttribute("data-action");
@@ -34476,9 +34681,16 @@
       previousCursor: null,
       previousBodyCursor: null,
       notice: "",
+      noticeKind: "info",
+      noticeTimer: null,
       shadowClickBound: false,
       colorisInput: null,
-      mcpClient: null
+      mcpClient: null,
+      confirm: null,
+      confirmClosing: false,
+      confirmFocus: CONFIRM_INITIAL_FOCUS,
+      confirmInvoker: null,
+      confirmTimer: null
     };
     const reactAdapter = createReactAdapter();
     const reactSourceCoordinator = createReactSourceCoordinator(reactAdapter);
@@ -34506,7 +34718,8 @@
         if (!raw) return [];
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) return [];
-        return parsed.filter((item) => item && typeof item.id === "string" && typeof item.elementPath === "string").map((item) => {
+        const { valid } = sanitizeStoredAnnotations(parsed);
+        return valid.filter((item) => item && typeof item.id === "string" && typeof item.elementPath === "string").map((item) => {
           const targetElements = resolveMultiElements(item);
           return {
             ...item,
@@ -34522,7 +34735,7 @@
       try {
         localStorage.setItem(storageKey(), JSON.stringify(state.annotations.map(cloneAnnotation)));
       } catch {
-        setNotice("Storage unavailable. Annotations will remain in memory only.");
+        setNotice("Storage unavailable. Annotations will remain in memory only.", "error");
       }
       syncMcpSession();
     }
@@ -34532,7 +34745,7 @@
     function updateSetting2(key, value, renderAfter = true) {
       state.settings = updateSetting(state.settings, key, value);
       if (!saveSettings(state.settings)) {
-        setNotice("Storage unavailable. Settings will remain in memory only.");
+        setNotice("Storage unavailable. Settings will remain in memory only.", "error");
         return;
       }
       if (key === "reactContext" && !value) reactSourceCoordinator.cancel();
@@ -34577,9 +34790,28 @@
       if (state.editingId && ids.includes(state.editingId)) clearComposerState();
       render();
     }
-    function setNotice(message) {
+    function setNotice(message, kind = "info") {
+      if (state.noticeTimer !== null) {
+        window.clearTimeout(state.noticeTimer);
+        state.noticeTimer = null;
+      }
       state.notice = message;
+      state.noticeKind = kind;
       render();
+      if (!message) return;
+      state.noticeTimer = window.setTimeout(
+        () => {
+          state.noticeTimer = null;
+          if (!state.shadow) return;
+          state.notice = "";
+          render();
+        },
+        kind === "error" ? 4e3 : 1800
+      );
+    }
+    function noticeHtml() {
+      if (!state.notice) return "";
+      return `<div class="notice ${state.noticeKind === "error" ? "notice-error" : ""}" role="status">${escapeHtml(state.notice)}</div>`;
     }
     function ensureColorisTheme() {
       if (document.getElementById(COLORIS_STYLE_ID)) return;
@@ -34625,11 +34857,15 @@
           link.id = COLORIS_LINK_ID;
           link.rel = "stylesheet";
           link.href = COLORIS_CSS_URL;
+          link.integrity = COLORIS_CSS_INTEGRITY;
+          link.crossOrigin = "anonymous";
           document.head.appendChild(link);
         }
         const script = document.createElement("script");
         script.id = COLORIS_SCRIPT_ID;
         script.src = COLORIS_JS_URL;
+        script.integrity = COLORIS_JS_INTEGRITY;
+        script.crossOrigin = "anonymous";
         script.async = true;
         script.onload = () => resolve();
         script.onerror = () => {
@@ -35385,13 +35621,13 @@
         if (preview.pseudoTargetOriginal === null) preview.element.removeAttribute(PSEUDO_TARGET_ATTR);
         else preview.element.setAttribute(PSEUDO_TARGET_ATTR, preview.pseudoTargetOriginal);
       }
-      preview.styleOriginals.forEach((record2, property2) => {
-        if (record2.inlineValue) preview.element.style.setProperty(property2, record2.inlineValue, record2.priority);
+      preview.styleOriginals.forEach((record3, property2) => {
+        if (record3.inlineValue) preview.element.style.setProperty(property2, record3.inlineValue, record3.priority);
         else preview.element.style.removeProperty(property2);
       });
       preview.multiStyleOriginals?.forEach((records, element) => {
-        records.forEach((record2, property2) => {
-          if (record2.inlineValue) element.style.setProperty(property2, record2.inlineValue, record2.priority);
+        records.forEach((record3, property2) => {
+          if (record3.inlineValue) element.style.setProperty(property2, record3.inlineValue, record3.priority);
           else element.style.removeProperty(property2);
         });
       });
@@ -35406,13 +35642,13 @@
         if (committed.pseudoTargetOriginal === null) committed.element.removeAttribute(PSEUDO_TARGET_ATTR);
         else committed.element.setAttribute(PSEUDO_TARGET_ATTR, committed.pseudoTargetOriginal);
       }
-      committed.styleOriginals.forEach((record2, property2) => {
-        if (record2.inlineValue) committed.element.style.setProperty(property2, record2.inlineValue, record2.priority);
+      committed.styleOriginals.forEach((record3, property2) => {
+        if (record3.inlineValue) committed.element.style.setProperty(property2, record3.inlineValue, record3.priority);
         else committed.element.style.removeProperty(property2);
       });
       committed.multiStyleOriginals?.forEach((records, element) => {
-        records.forEach((record2, property2) => {
-          if (record2.inlineValue) element.style.setProperty(property2, record2.inlineValue, record2.priority);
+        records.forEach((record3, property2) => {
+          if (record3.inlineValue) element.style.setProperty(property2, record3.inlineValue, record3.priority);
           else element.style.removeProperty(property2);
         });
       });
@@ -35609,14 +35845,14 @@
       const preview = ensurePreview(element);
       preview.pseudoStyle?.remove();
       preview.pseudoStyle = void 0;
-      preview.styleOriginals.forEach((record2, property2) => {
-        if (record2.inlineValue) element.style.setProperty(property2, record2.inlineValue, record2.priority);
+      preview.styleOriginals.forEach((record3, property2) => {
+        if (record3.inlineValue) element.style.setProperty(property2, record3.inlineValue, record3.priority);
         else element.style.removeProperty(property2);
       });
       preview.styleOriginals.clear();
       preview.multiStyleOriginals?.forEach((records, target) => {
-        records.forEach((record2, property2) => {
-          if (record2.inlineValue) target.style.setProperty(property2, record2.inlineValue, record2.priority);
+        records.forEach((record3, property2) => {
+          if (record3.inlineValue) target.style.setProperty(property2, record3.inlineValue, record3.priority);
           else target.style.removeProperty(property2);
         });
       });
@@ -36425,8 +36661,8 @@
         pointer-events: none;
       }
       .icon-btn, .btn {
-        min-width: 34px;
-        min-height: 34px;
+        min-width: 40px;
+        min-height: 40px;
         border: 1px solid rgba(255,255,255,.12);
         border-radius: 8px;
         background: rgba(255,255,255,.05);
@@ -36852,7 +37088,7 @@
         line-height: 1.25;
       }
       .meta {
-        color: rgba(255,255,255,.5);
+        color: rgba(255,255,255,.66);
         font-size: 11px;
         line-height: 1.35;
         overflow-wrap: anywhere;
@@ -36967,7 +37203,7 @@
         border-color: rgba(255,122,26,.82);
         box-shadow: inset 0 0 0 1px rgba(255,122,26,.42);
       }
-      textarea::placeholder { color: rgba(255,255,255,.35); }
+      textarea::placeholder { color: rgba(255,255,255,.55); }
       .row { display: flex; gap: 8px; align-items: center; }
       .row > .text-btn { flex: 1; }
       .composer-actions {
@@ -37013,7 +37249,7 @@
       .text-btn.ghost {
         border-color: transparent;
         background: transparent;
-        color: rgba(255,255,255,.5);
+        color: rgba(255,255,255,.66);
       }
       .text-btn.ghost:hover {
         border-color: transparent;
@@ -37044,7 +37280,7 @@
         margin-top: 8px;
       }
       .field-label {
-        color: rgba(255,255,255,.5);
+        color: rgba(255,255,255,.66);
         font-size: 11px;
       }
       .intent-radios {
@@ -38138,7 +38374,7 @@
         border-radius: 999px;
         padding: 0 7px;
         background: rgba(255,255,255,.06);
-        color: rgba(255,255,255,.5);
+        color: rgba(255,255,255,.66);
         font-size: 10px;
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
@@ -38174,6 +38410,7 @@
         border-radius: 4px;
       }
       .stepper-btn {
+        position: relative;
         width: 18px;
         min-width: 18px;
         min-height: 11px;
@@ -38181,7 +38418,12 @@
         padding: 0;
         border-radius: 0;
         background: transparent;
-        color: rgba(255,255,255,.5);
+        color: rgba(255,255,255,.66);
+      }
+      .stepper-btn::after {
+        content: "";
+        position: absolute;
+        inset: -12px;
       }
       .stepper-btn svg {
         width: 12px;
@@ -38423,12 +38665,20 @@
         width: 15px;
         height: 15px;
         flex: 0 0 15px;
+        border: 0;
+        padding: 0;
         border-radius: 999px;
         background: rgba(255,255,255,.09);
         color: rgba(255,255,255,.62);
+        font: inherit;
         font-size: 10px;
         line-height: 1;
         cursor: help;
+      }
+      .settings-help-tip::after {
+        content: "";
+        position: absolute;
+        inset: -12px;
       }
       .settings-help-tip:focus-visible {
         outline: none;
@@ -38779,6 +39029,9 @@
         font-size: 11px;
         padding: 0 12px 12px;
       }
+      .notice-error {
+        color: #f97066;
+      }
       .hidden { display: none; }
       @keyframes fm-tooltip-in {
         from { opacity: 0; visibility: visible; }
@@ -38847,6 +39100,99 @@
       @keyframes fm-pop {
         from { opacity: 0; transform: scale(.6); }
         to { opacity: 1; transform: scale(1); }
+      }
+      @keyframes fm-confirm-in {
+        from { opacity: 0; transform: translateY(6px) scale(.97); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes fm-confirm-out {
+        from { opacity: 1; transform: translateY(0) scale(1); }
+        to { opacity: 0; transform: translateY(4px) scale(.97); }
+      }
+      .confirm-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        background: rgba(0,0,0,.28);
+      }
+      .confirm {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 31;
+        width: min(340px, calc(100vw - 48px));
+        border-radius: 12px;
+        padding: 18px;
+        display: grid;
+        gap: 8px;
+        background: #1c1c1e;
+        color: rgba(255,255,255,.92);
+        box-shadow: 0 24px 64px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.1);
+        animation: fm-confirm-in 160ms cubic-bezier(.2,.8,.2,1) both;
+      }
+      .confirm.closing {
+        animation: fm-confirm-out 120ms cubic-bezier(.4,0,.2,1) both;
+      }
+      .confirm h2 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .confirm p {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.55;
+        color: rgba(255,255,255,.66);
+      }
+      .confirm-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .confirm-actions button {
+        min-height: 40px;
+        min-width: 44px;
+        padding: 0 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,.14);
+        background: rgba(255,255,255,.07);
+        color: rgba(255,255,255,.88);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .confirm-actions button:hover {
+        background: rgba(255,255,255,.13);
+      }
+      .confirm-actions button.destructive {
+        border-color: transparent;
+        background: #f04438;
+        color: #fff;
+      }
+      .confirm-actions button.destructive:hover {
+        background: #d92d20;
+      }
+      .confirm-actions button:focus-visible,
+      .icon-btn:focus-visible,
+      .btn:focus-visible,
+      .text-btn:focus-visible {
+        outline: 2px solid #ff7a1a;
+        outline-offset: 2px;
+      }
+      .fm-layer :focus-visible {
+        outline: 2px solid #ff7a1a;
+        outline-offset: 2px;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .confirm, .confirm.closing { animation: none; }
+        .fm-layer *, .fm-layer *::before, .fm-layer *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
       }
       @keyframes fm-style-expand {
         from { opacity: 0; max-height: 0; transform: translateY(-4px) scale(.985); }
@@ -39012,20 +39358,8 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .structure-empty { color: rgba(255,255,255,.35); font-size: 11px; padding: 2px 0; }
+      .structure-empty { color: rgba(255,255,255,.6); font-size: 11px; padding: 2px 0; }
     `;
-    }
-    function escapeHtml(value) {
-      return value.replace(/[&<>"']/g, (char) => {
-        const map = {
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;"
-        };
-        return map[char] || char;
-      });
     }
     function unresolvedAnnotations() {
       return state.annotations.filter((a2) => !["resolved", "dismissed"].includes(a2.status || "pending")).map(cloneAnnotation);
@@ -39147,7 +39481,7 @@
         }, 1400);
       } catch {
         state.copyState = "failed";
-        setNotice("Clipboard write failed. Select text from the review panel output instead.");
+        setNotice("Clipboard write failed. Select text from the review panel output instead.", "error");
         window.setTimeout(() => {
           state.copyState = "idle";
           render();
@@ -40042,7 +40376,7 @@
       <div class="composer-bar">
         <button class="icon-btn css-toggle ${state.cssOpen ? "open" : ""} ${state.styleEditorClosing ? "closing" : ""}" data-action="toggle-css" type="button" aria-label="${state.cssOpen ? "Hide" : "Show"} element CSS" aria-expanded="${state.cssOpen}" aria-controls="feedback-mark-element-css">${icon("paint")}</button>
         <textarea name="comment" placeholder="${state.cssOpen ? "Describe these changes..." : "Add a comment..."}" rows="1">${escapeHtml(draft?.comment ?? editingAnnotation?.comment ?? "")}</textarea>
-        <span class="icon-btn mic-affordance ${showMicAffordance ? "" : "hidden"}" aria-label="Voice input unavailable" data-mic-affordance>${icon("mic")}</span>
+        <span class="icon-btn mic-affordance ${showMicAffordance ? "" : "hidden"}" aria-hidden="true" data-mic-affordance>${icon("mic")}</span>
         <button class="icon-btn primary submit-icon ${showCompactSubmit ? "" : "hidden"}" aria-label="${submitLabel} annotation" type="submit" data-composer-submit ${meaningful ? "" : "disabled"}>${icon("check")}</button>
       </div>
       ${showStyleEditor ? `<div class="composer-context">${renderStyleEditor()}</div>` : ""}
@@ -40060,7 +40394,7 @@
       return `<button class="settings-row" type="button" role="switch" aria-checked="${checked ? "true" : "false"}" data-action="toggle-setting" data-setting="${key}">
       <span class="settings-row-label">
         <strong>${escapeHtml(label)}</strong>
-        <span class="settings-help-tip" tabindex="0" aria-label="${escapeHtml(help)}" data-tooltip="${escapeHtml(help)}">?</span>
+        <button type="button" class="settings-help-tip" aria-label="${escapeHtml(help)}" data-tooltip="${escapeHtml(help)}">?</button>
       </span>
       <span class="settings-toggle" aria-hidden="true"></span>
     </button>`;
@@ -40095,7 +40429,7 @@
           <button class="settings-row" type="button" data-action="settings-view" data-settings-view="mcp">
             <span class="settings-row-label">
               <strong>MCP</strong>
-              <span class="settings-help-tip" tabindex="0" aria-label="Connect Annote to your coding agent." data-tooltip="Connect Annote to your coding agent.">?</span>
+              <button type="button" class="settings-help-tip" aria-label="Connect MCP to your coding agent." data-tooltip="Connect MCP to your coding agent.">?</button>
             </span>
             <span class="settings-row-meta">${mcpNeedsApproval() ? `<span class="settings-approval-dot" aria-hidden="true"></span>` : ""}<span>${escapeHtml(mcpStatusLabel(state.mcpStatus))}</span><span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
           </button>
@@ -40107,7 +40441,7 @@
           </button>
         </section>
       </div>
-      ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
+      ${noticeHtml()}
     `;
     }
     function renderSettingsHeader(title) {
@@ -40128,7 +40462,7 @@
           <button class="text-btn compact primary" type="button" data-action="settings-mcp-allow">Allow on this site</button>
           <p class="settings-copy">You only need to do this once.</p>
         </div>
-        ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
+        ${noticeHtml()}
       `;
       }
       if (state.mcpStatus === "connected") {
@@ -40142,7 +40476,7 @@
           </div>
           <button class="settings-link-button" type="button" data-action="settings-mcp-revoke">Revoke this site</button>
         </div>
-        ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
+        ${noticeHtml()}
       `;
       }
       if (state.mcpStatus === "protocol-incompatible") {
@@ -40153,7 +40487,7 @@
           <p class="settings-copy">Your Annote browser and MCP companion use different versions.</p>
           <div class="settings-command"><code>npm run mcp:build</code><button type="button" data-action="settings-copy-command">${state.mcpSetupCopyState === "copied" ? "Copied" : "Copy"}</button></div>
         </div>
-        ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
+        ${noticeHtml()}
       `;
       }
       if (state.mcpStatus === "error") {
@@ -40163,27 +40497,29 @@
           <h3 class="settings-state-title">Something's not connecting.</h3>
           <button class="text-btn compact" type="button" data-action="settings-copy-doctor">Run diagnostics</button>
         </div>
-        ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
+        ${noticeHtml()}
       `;
       }
       return `
       ${renderSettingsHeader("MCP")}
       <div class="settings-detail">
-        <p class="settings-copy">Connect Annote to your coding agent.</p>
+        <p class="settings-copy">Connect MCP to your coding agent.</p>
         <h3 class="settings-state-title">Not connected</h3>
         <p class="settings-copy">Run once</p>
         <div class="settings-command"><code>${escapeHtml(ANNOTE_LOCAL_SETUP_COMMAND)}</code><button type="button" data-action="settings-copy-command">${state.mcpSetupCopyState === "copied" ? "Copied" : "Copy"}</button></div>
         <p class="settings-copy">Then restart your coding agent.</p>
       </div>
-      ${state.notice ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
+      ${noticeHtml()}
     `;
     }
     function renderHelpSettings() {
       const rows = [
         ["Select element", "Click"],
-        ["Multi-select", "Shift + click"],
-        ["Add/remove selection", "Shift + click"],
+        ["Multi-select / add-remove", "Shift + click"],
         ["Move toolbar", "Hold + drag"],
+        ["Pick element", SHORTCUTS["toggle-pick"]],
+        ["Copy unresolved", SHORTCUTS.copy],
+        ["Delete", `${SHORTCUTS.clear} + confirm`],
         ["Stop selecting", "Esc"],
         ["Submit", "Enter"],
         ["New line", "Shift + Enter"],
@@ -40281,7 +40617,7 @@
                     </article>`
       ).join("") : `<p class="meta">No annotations yet. Turn on Pick and click an element.</p>`}
       </div>
-      ${state.notice && state.notice !== "This element already has an annotation." ? `<div class="notice">${escapeHtml(state.notice)}</div>` : ""}
+      ${state.notice !== "This element already has an annotation." ? noticeHtml() : ""}
     `;
     }
     function syncComposerSubmitState() {
@@ -40406,10 +40742,12 @@
       bindMotionInputs(panel);
       const endHeight = panel.scrollHeight;
       panel.classList.remove("exiting");
-      panel.animate([{ height: `${startHeight}px`, opacity: 0.55 }, { height: `${endHeight}px`, opacity: 1 }], {
-        duration: 180,
-        easing: "cubic-bezier(.2,.8,.2,1)"
-      });
+      if (!prefersReducedMotion()) {
+        panel.animate([{ height: `${startHeight}px`, opacity: 0.55 }, { height: `${endHeight}px`, opacity: 1 }], {
+          duration: 180,
+          easing: "cubic-bezier(.2,.8,.2,1)"
+        });
+      }
       panel.style.height = `${endHeight}px`;
       window.setTimeout(() => {
         panel.style.height = "";
@@ -40654,6 +40992,24 @@
         }
       });
       syncMotionReadout();
+    }
+    function scrubberKeyStep(event) {
+      const scrubber = event.currentTarget;
+      const animation = selectedAnimation();
+      const edit = selectedAnimationEdit();
+      if (!animation) return;
+      const duration = motionDuration(animation, edit);
+      if (!duration) return;
+      let delta = null;
+      if (event.key === "ArrowLeft") delta = -(event.shiftKey ? 0.1 : 0.05);
+      else if (event.key === "ArrowRight") delta = event.shiftKey ? 0.1 : 0.05;
+      else if (event.key !== "Home" && event.key !== "End") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = scrubber.getBoundingClientRect();
+      const progress = event.key === "Home" ? 0 : event.key === "End" ? 1 : Math.max(0, Math.min(1, normalizedMotionTime(animation, edit).current / duration + delta));
+      setAnimationTime(animation, duration, rect.left + progress * rect.width, scrubber);
+      scrubber.setAttribute("aria-valuenow", String(Math.round(progress * duration)));
     }
     function beginMotionScrub(event) {
       const scrubber = event.currentTarget;
@@ -40966,10 +41322,19 @@
         <section class="panel ${state.visible ? "" : "hidden"}" style="${railStyle}" aria-label="${state.panelMode === "settings" ? "Settings panel" : "Annotation review panel"}">
           ${renderPanelContent()}
         </section>
+        ${renderConfirm()}
       </div>
     `;
       bindShadowEvents();
       syncMotionReadout();
+      if (state.confirm && !state.confirmClosing) {
+        const active = state.shadow?.activeElement;
+        const dialog = state.shadow?.querySelector("[data-confirm]");
+        if (dialog && (!active || !dialog.contains(active))) {
+          const selector2 = state.confirmFocus === "delete" ? "[data-action='confirm-delete']" : "[data-confirm-cancel]";
+          state.shadow?.querySelector(selector2)?.focus();
+        }
+      }
       if (state.cssOpen && selectedAnimation()) startMotionReadoutLoop();
       const restoreStyleScroll = () => {
         const styleGridWrap = state.shadow?.querySelector(".style-grid-wrap");
@@ -41080,6 +41445,12 @@
       bindToolbarTooltipGroup(root);
       if (!state.shadowClickBound) {
         root.addEventListener("click", onShadowRootClick);
+        root.addEventListener("focusin", (event) => {
+          if (!state.confirm) return;
+          const target = event.target;
+          if (target?.matches?.("[data-action='confirm-delete']")) state.confirmFocus = "delete";
+          else if (target?.matches?.("[data-confirm-cancel]")) state.confirmFocus = "cancel";
+        });
         state.shadowClickBound = true;
       }
       root.querySelectorAll("[data-action]:not([data-annote-bound])").forEach((control) => {
@@ -41161,7 +41532,7 @@
               },
               () => {
                 state.mcpSetupCopyState = "failed";
-                setNotice("Clipboard write failed.");
+                setNotice("Clipboard write failed.", "error");
               }
             );
           }
@@ -41208,6 +41579,8 @@
           if (action === "delete-current") requestDeleteCurrent();
           if (action === "copy") void copyMarkdown();
           if (action === "clear") requestClearAnnotations();
+          if (action === "confirm-cancel") closeConfirm();
+          if (action === "confirm-delete") executeConfirm();
           if (action === "destroy") destroy();
           if (action === "cancel-compose") {
             requestCancelComposer();
@@ -41489,6 +41862,7 @@
       root.querySelector("[data-motion-scrubber]")?.addEventListener("pointermove", moveMotionScrub);
       root.querySelector("[data-motion-scrubber]")?.addEventListener("pointerup", endMotionScrub);
       root.querySelector("[data-motion-scrubber]")?.addEventListener("pointercancel", endMotionScrub);
+      root.querySelector("[data-motion-scrubber]")?.addEventListener("keydown", scrubberKeyStep);
       root.querySelectorAll("[data-motion-graph-handle]").forEach((handle) => {
         handle.addEventListener("pointerdown", beginMotionGraphDrag);
       });
@@ -41851,6 +42225,7 @@
       const deltaX = startLeft - nextRect.left;
       const deltaY = startTop - nextRect.top;
       if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) return;
+      if (prefersReducedMotion()) return;
       composer.classList.add("positioning");
       const animation = composer.animate(
         [
@@ -42032,15 +42407,97 @@
       observeTargets();
       render();
     }
+    function openConfirm(kind, targetId, count) {
+      if (state.confirmTimer !== null) {
+        window.clearTimeout(state.confirmTimer);
+        state.confirmTimer = null;
+      }
+      const active = state.shadow?.activeElement || document.activeElement;
+      state.confirmInvoker = active instanceof HTMLElement ? active : null;
+      state.confirm = { kind, targetId, count };
+      state.confirmClosing = false;
+      state.confirmFocus = CONFIRM_INITIAL_FOCUS;
+      render();
+      requestAnimationFrame(() => {
+        state.shadow?.querySelector("[data-confirm-cancel]")?.focus();
+      });
+    }
+    function closeConfirm(restoreFocus = true) {
+      if (!state.confirm || state.confirmClosing) return;
+      state.confirmClosing = true;
+      render();
+      const done = () => {
+        state.confirm = null;
+        state.confirmClosing = false;
+        state.confirmTimer = null;
+        if (restoreFocus) state.confirmInvoker?.focus?.();
+        state.confirmInvoker = null;
+        render();
+      };
+      const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reduced) {
+        done();
+        return;
+      }
+      state.confirmTimer = window.setTimeout(done, 130);
+    }
+    function executeConfirm() {
+      const pending = state.confirm;
+      if (!pending || state.confirmClosing) return;
+      if (state.confirmTimer !== null) {
+        window.clearTimeout(state.confirmTimer);
+        state.confirmTimer = null;
+      }
+      state.confirm = null;
+      state.confirmClosing = false;
+      state.confirmInvoker = null;
+      if (pending.kind === "delete-current" && pending.targetId) {
+        const id = pending.targetId;
+        animateComposerOut(() => deleteAnnotation(id));
+        return;
+      }
+      clear();
+    }
+    function renderConfirm() {
+      if (!state.confirm) return "";
+      const content = confirmDialogContent(
+        state.confirm.kind,
+        state.confirm.kind === "delete-current" ? { elementLabel: state.annotations.find((a2) => a2.id === state.confirm?.targetId)?.element } : { count: state.confirm.count }
+      );
+      return `
+      <div class="confirm-scrim" data-action="confirm-cancel"></div>
+      <div class="confirm ${state.confirmClosing ? "closing" : ""}" role="alertdialog" aria-modal="true" aria-labelledby="annote-confirm-title" aria-describedby="annote-confirm-body" data-confirm>
+        <h2 id="annote-confirm-title">${escapeHtml(content.title)}</h2>
+        <p id="annote-confirm-body">${escapeHtml(content.body)}</p>
+        <div class="confirm-actions">
+          <button type="button" data-action="confirm-cancel" data-confirm-cancel>${escapeHtml(content.cancelLabel)}</button>
+          <button type="button" class="destructive" data-action="confirm-delete">${escapeHtml(content.confirmLabel)}</button>
+        </div>
+      </div>
+    `;
+    }
+    function trapConfirmTab(event) {
+      const dialog = state.shadow?.querySelector("[data-confirm]");
+      const buttons = dialog ? Array.from(dialog.querySelectorAll("button")) : [];
+      if (buttons.length < 2) return;
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      const active = state.shadow?.activeElement;
+      if (event.shiftKey && (active === first || !dialog?.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
     function requestDeleteCurrent() {
       if (!state.editingId) return;
-      const id = state.editingId;
-      animateComposerOut(() => deleteAnnotation(id));
+      openConfirm("delete-current", state.editingId, 1);
     }
     function requestClearAnnotations() {
       if (!state.annotations.length) return;
-      if (!confirm("Clear all local annotations for this page?")) return;
-      clear();
+      openConfirm("clear-all", null, state.annotations.length);
     }
     function onPointerMove(event) {
       if (!state.active) return;
@@ -42189,42 +42646,40 @@
         updateSelectionOnly();
         return;
       }
-      if (!isTypingInInput(event.target)) {
-        const key = event.key.toLowerCase();
-        const isDelete = event.key === "Delete" || event.key === "Backspace";
-        if (!event.ctrlKey && !event.metaKey && !event.altKey) {
-          if (key === "p") {
-            event.preventDefault();
-            togglePick();
-            return;
-          }
-          if (key === "c") {
-            if (unresolvedAnnotations().length) {
-              event.preventDefault();
-              void copyMarkdown();
-            }
-            return;
-          }
+      if (state.confirm) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          closeConfirm();
+          return;
         }
-        if (isDelete && !event.ctrlKey && !event.metaKey) {
-          if (state.editingId) {
-            event.preventDefault();
-            requestDeleteCurrent();
-            return;
-          }
-          if (state.annotations.length) {
-            event.preventDefault();
-            requestClearAnnotations();
-            return;
-          }
+        if (event.key === "Tab") {
+          trapConfirmTab(event);
+          return;
         }
+        if (isTypingInInput(event.target)) return;
+        return;
       }
+      if (handleGlobalShortcut(event)) return;
       if ((event.key === "Enter" || event.key === " ") && shouldPreventUnderlyingAction() && !isTypingInInput(event.target)) {
         const target = event.target;
         if (target && (target.matches('a, button, [role="button"]') || !!target.closest('a, button, [role="button"]'))) {
           if (!isAnnotatorNode(target)) {
             event.preventDefault();
             event.stopPropagation();
+            return;
+          }
+          const launcher = target.matches("[data-action='open-toolbar']") ? target : target.closest("[data-action='open-toolbar']");
+          if (launcher && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            event.stopPropagation();
+            openToolbar();
+            state.active = true;
+            setAnnotatingCursor(true);
+            render();
+            requestAnimationFrame(() => {
+              state.shadow?.querySelector('[data-action="toggle-pick"]')?.focus();
+            });
             return;
           }
         }
@@ -42463,17 +42918,19 @@
       toolbar?.classList.add("closing");
       toolbar?.style.setProperty("width", "46px");
       toolbar?.style.setProperty("height", `${TOOLBAR_RAIL_HEIGHT}px`);
-      toolbar?.animate(
-        [
-          { width: "46px", height: `${TOOLBAR_RAIL_HEIGHT}px`, opacity: 1, transform: "translateX(0)" },
-          { width: "46px", height: `${TOOLBAR_COLLAPSED_HEIGHT}px`, opacity: 0.96, transform: "translateX(0)" }
-        ],
-        {
-          duration: 280,
-          easing: "cubic-bezier(.4,0,.2,1)",
-          fill: "forwards"
-        }
-      );
+      if (!prefersReducedMotion()) {
+        toolbar?.animate(
+          [
+            { width: "46px", height: `${TOOLBAR_RAIL_HEIGHT}px`, opacity: 1, transform: "translateX(0)" },
+            { width: "46px", height: `${TOOLBAR_COLLAPSED_HEIGHT}px`, opacity: 0.96, transform: "translateX(0)" }
+          ],
+          {
+            duration: 280,
+            easing: "cubic-bezier(.4,0,.2,1)",
+            fill: "forwards"
+          }
+        );
+      }
       window.setTimeout(() => {
         state.toolbarOpen = false;
         state.toolbarOpening = false;
@@ -42485,6 +42942,17 @@
     function destroy() {
       state.mcpClient?.destroy();
       state.mcpClient = null;
+      if (state.confirmTimer !== null) {
+        window.clearTimeout(state.confirmTimer);
+        state.confirmTimer = null;
+      }
+      state.confirm = null;
+      state.confirmClosing = false;
+      state.confirmInvoker = null;
+      if (state.noticeTimer !== null) {
+        window.clearTimeout(state.noticeTimer);
+        state.noticeTimer = null;
+      }
       removeGlobalListeners();
       endComposerDrag();
       endToolbarRailDrag();

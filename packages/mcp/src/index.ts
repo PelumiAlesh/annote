@@ -1,4 +1,4 @@
-export { createBridgeServer, health } from "./bridge-server.js";
+export { createBridgeServer, health, isLoopbackHost, HttpError, SSE_HEARTBEAT_MS } from "./bridge-server.js";
 export { BridgeClient } from "./bridge-client.js";
 export { ensureConfig, readConfig } from "./config.js";
 export { createMcpServer, ensureBridge, runStdioServer } from "./mcp-server.js";

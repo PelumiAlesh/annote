@@ -164,6 +164,48 @@ function record(value: unknown): RawRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as RawRecord) : {};
 }
 
+// Transport guardrails for broad `unknown` animation data coming from host pages.
+// Shared by browser serialization and the MCP boundary — no extra deps.
+export const MAX_MOTION_PATCHES = 16;
+export const MAX_TRANSPORT_DEPTH = 6;
+export const MAX_TRANSPORT_KEYS = 64;
+export const MAX_TRANSPORT_ARRAY = 64;
+export const MAX_TRANSPORT_STRING = 2000;
+export const MAX_TRANSPORT_JSON_BYTES = 100_000;
+
+function sanitizeTransportValue(value: unknown, budget = MAX_TRANSPORT_JSON_BYTES, depth = 0): unknown | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") return value.slice(0, MAX_TRANSPORT_STRING);
+  if (typeof value === "number" || typeof value === "boolean") return Number.isFinite(value) ? value : undefined;
+  if (depth >= MAX_TRANSPORT_DEPTH) return undefined;
+  if (Array.isArray(value)) {
+    const out: unknown[] = [];
+    for (const item of value.slice(0, MAX_TRANSPORT_ARRAY)) {
+      const cleaned = sanitizeTransportValue(item, budget, depth + 1);
+      if (cleaned !== undefined) out.push(cleaned);
+    }
+    return out;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as RawRecord).slice(0, MAX_TRANSPORT_KEYS);
+    const out: RawRecord = {};
+    for (const [key, item] of entries) {
+      if (typeof key !== "string" || key.length > 160) continue;
+      const cleaned = sanitizeTransportValue(item, budget, depth + 1);
+      if (cleaned !== undefined) out[key.slice(0, 160)] = cleaned;
+    }
+    const keys = Object.keys(out);
+    if (!keys.length) return undefined;
+    try {
+      if (JSON.stringify(out).length > budget) return undefined;
+    } catch {
+      return undefined;
+    }
+    return out;
+  }
+  return undefined;
+}
+
 function box(value: unknown): AnnoteElementSnapshotDTO["boundingBox"] | undefined {
   const raw = record(value);
   const x = Number(raw.x);
@@ -232,14 +274,17 @@ function motionPatchesFrom(annotation: RawRecord): AnnoteAnimationPatchDTO[] | u
       ? [annotation.animationPatch]
       : [];
   const patches = raw
+    .slice(0, MAX_MOTION_PATCHES)
     .map((item) => {
       const patch = record(item);
+      const keyframes = sanitizeTransportValue(patch.keyframes, MAX_TRANSPORT_JSON_BYTES / 4);
+      const timing = sanitizeTransportValue(patch.timing, MAX_TRANSPORT_JSON_BYTES / 4);
       return {
         id: cleanString(patch.id, 160),
         label: cleanString(patch.label, 240),
         source: cleanString(patch.source, 240),
-        keyframes: patch.keyframes && typeof patch.keyframes === "object" ? patch.keyframes : undefined,
-        timing: patch.timing && typeof patch.timing === "object" ? patch.timing : undefined,
+        keyframes: keyframes === undefined ? undefined : keyframes,
+        timing: timing === undefined ? undefined : timing,
         cssText: cleanString(patch.cssText, 2000),
         summary: cleanString(patch.summary, 500),
       };

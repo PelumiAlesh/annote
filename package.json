@@ -48,7 +48,10 @@
     "mcp:status": "node dist/mcp/cli.js status",
     "mcp:doctor": "npm run mcp:build && node dist/mcp/cli.js doctor",
     "prepack": "npm run build && npm run mcp:build",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.mcp.json --noEmit",
+    "typecheck:browser": "tsc -p tsconfig.json --noEmit",
+    "typecheck:mcp": "tsc -p tsconfig.mcp.json --noEmit",
+    "typecheck:all": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.mcp.json --noEmit",
     "test:build": "node scripts/build-test-fixtures.mjs",
     "test": "npm run test:build && node --test tests/*.mjs tests/mcp/*.mjs",
     "dev": "python3 -m http.server 4173"
