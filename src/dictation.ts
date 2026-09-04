@@ -50,12 +50,12 @@ export function composerControls(input: ComposerControlInput): ComposerControls 
     };
   }
   const mic = micSupported ? (["mic"] as const) : [];
-  // Expanded owns mic+save in the footer; the top stays a plain input.
-  // Collapsed keeps mic (+send when text exists) in the top field.
+  // The microphone always belongs to the text field so opening the style
+  // editor never makes the control jump to a different part of the composer.
   return {
-    top: expanded ? ["input"] : ["input", ...mic, ...(hasText ? (["send"] as const) : [])],
+    top: ["input", ...mic, ...(!expanded && hasText ? (["send"] as const) : [])],
     footerLeft: expanded ? ["cancel", "undo", ...(isExisting ? ["delete" as const] : [])] : null,
-    footerRight: expanded ? [...(micSupported ? (["mic"] as const) : []), "save"] : null,
+    footerRight: expanded ? ["save"] : null,
     saveDisabled: false,
   };
 }

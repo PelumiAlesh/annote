@@ -32755,9 +32755,9 @@
     }
     const mic = micSupported ? ["mic"] : [];
     return {
-      top: expanded ? ["input"] : ["input", ...mic, ...hasText ? ["send"] : []],
+      top: ["input", ...mic, ...!expanded && hasText ? ["send"] : []],
       footerLeft: expanded ? ["cancel", "undo", ...isExisting ? ["delete"] : []] : null,
-      footerRight: expanded ? [...micSupported ? ["mic"] : [], "save"] : null,
+      footerRight: expanded ? ["save"] : null,
       saveDisabled: false
     };
   }
@@ -32804,7 +32804,7 @@
   }
 
   // src/version.ts
-  var ANNOTE_VERSION = "0.1.6";
+  var ANNOTE_VERSION = "0.1.7";
 
   // src/settings-view.ts
   function mcpStatusLabel(status) {
@@ -32837,6 +32837,14 @@
       </div>
       <div class="settings-list">
         <section class="settings-section" aria-label="Behavior">
+          <div class="settings-row theme-settings-row">
+            <span class="settings-row-label"><strong>Theme</strong></span>
+            <div class="theme-segments" role="radiogroup" aria-label="Theme">
+              ${renderThemeOption("light", "Light", "sun", data.settings.theme)}
+              ${renderThemeOption("opposite-page", "Opposite page", "contrast", data.settings.theme)}
+              ${renderThemeOption("dark", "Dark", "moon", data.settings.theme)}
+            </div>
+          </div>
           ${renderSettingsToggle(data, "pauseAnimationOnSelect", "Pause animation on select", "Pause active motion when you select it.")}
           ${renderSettingsToggle(data, "clearAfterSend", "Clear after send", "Remove submitted annotations after sending.")}
           ${renderSettingsToggle(data, "preventPageActions", "Prevent page interactions while annotating", "Prevent clicks and hover interactions while selecting elements.")}
@@ -32863,6 +32871,14 @@
       </div>
       ${data.noticeHtml}
     `;
+  }
+  function renderThemeOption(value, label, iconName, selected) {
+    const checked = selected === value;
+    return `<button class="theme-segment${checked ? " selected" : ""}" type="button" role="radio" aria-checked="${checked}" aria-label="${label} theme" data-tooltip="${label}" data-action="set-theme" data-theme-preference="${value}">${themeIcon(iconName)}</button>`;
+  }
+  function themeIcon(name50) {
+    const path = name50 === "sun" ? '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/>' : name50 === "moon" ? '<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"/>' : '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16Z" fill="currentColor" stroke="none"/>';
+    return `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
   }
   function renderSettingsHeader(title) {
     return `<div class="panel-head detail">
@@ -34250,10 +34266,67 @@
     };
   }
 
+  // src/theme.ts
+  var THEME_ATTRIBUTE_FILTER = [
+    "class",
+    "style",
+    "data-theme",
+    "data-mode",
+    "data-color-mode",
+    "data-color-scheme",
+    "data-bs-theme"
+  ];
+  var DARK_SIGNAL = /(?:^|[\s_-])(dark|night|black)(?:$|[\s_-])/i;
+  var LIGHT_SIGNAL = /(?:^|[\s_-])(light|day)(?:$|[\s_-])/i;
+  function parseRgb(value) {
+    const match = value.trim().match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i);
+    if (!match) return null;
+    const alpha = match[4]?.endsWith("%") ? Number.parseFloat(match[4]) / 100 : Number.parseFloat(match[4] ?? "1");
+    return [Number(match[1]), Number(match[2]), Number(match[3]), alpha];
+  }
+  function luminance([red, green, blue]) {
+    const channels = [red, green, blue].map((channel) => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  }
+  function classifiedBackground(element, getStyle) {
+    if (!element) return null;
+    const parsed = parseRgb(getStyle(element).backgroundColor);
+    if (!parsed || parsed[3] <= 0.01) return null;
+    return luminance([parsed[0], parsed[1], parsed[2]]) > 0.42 ? "light" : "dark";
+  }
+  function themeSignal(element) {
+    if (!element) return null;
+    const values = [
+      element.getAttribute("class"),
+      element.getAttribute("data-theme"),
+      element.getAttribute("data-mode"),
+      element.getAttribute("data-color-mode"),
+      element.getAttribute("data-color-scheme"),
+      element.getAttribute("data-bs-theme")
+    ].filter(Boolean).join(" ");
+    if (DARK_SIGNAL.test(values)) return "dark";
+    if (LIGHT_SIGNAL.test(values)) return "light";
+    return null;
+  }
+  function detectPageTheme(doc = document, getStyle = getComputedStyle) {
+    return classifiedBackground(doc.body, getStyle) ?? classifiedBackground(doc.documentElement, getStyle) ?? themeSignal(doc.body) ?? themeSignal(doc.documentElement) ?? (getStyle(doc.body ?? doc.documentElement).colorScheme.toLowerCase().split(/\s+/).includes("dark") ? "dark" : null) ?? "light";
+  }
+  function resolveTheme(preference, pageTheme) {
+    if (preference === "opposite-page") return pageTheme === "dark" ? "light" : "dark";
+    return preference;
+  }
+  function normalizeThemePreference(value) {
+    return value === "light" || value === "dark" || value === "opposite-page" ? value : "opposite-page";
+  }
+
   // src/settings.ts
   var SETTINGS_STORAGE_KEY = "annote:settings:v1";
   var LEGACY_SETTINGS_STORAGE_KEY = "feedback-mark:settings:v1";
   var DEFAULT_SETTINGS = {
+    theme: "opposite-page",
     pauseAnimationOnSelect: true,
     clearAfterSend: false,
     preventPageActions: true,
@@ -34267,6 +34340,7 @@
     if (!value || typeof value !== "object" || Array.isArray(value)) return { ...DEFAULT_SETTINGS };
     const raw = value;
     return {
+      theme: normalizeThemePreference(raw.theme),
       pauseAnimationOnSelect: isBoolean(raw.pauseAnimationOnSelect) ? raw.pauseAnimationOnSelect : DEFAULT_SETTINGS.pauseAnimationOnSelect,
       clearAfterSend: isBoolean(raw.clearAfterSend) ? raw.clearAfterSend : DEFAULT_SETTINGS.clearAfterSend,
       preventPageActions: isBoolean(raw.preventPageActions) ? raw.preventPageActions : DEFAULT_SETTINGS.preventPageActions,
@@ -34301,6 +34375,23 @@
 
   // packages/protocol/src/index.ts
   var ANNOTE_PROTOCOL_VERSION = 1;
+  var ANNOTE_INTENTS = ["fix", "ask", "note"];
+  function normalizeAnnotationIntent(value) {
+    if (value === "fix" || value === "change") return "fix";
+    if (value === "ask" || value === "question") return "ask";
+    if (value === "note") return "note";
+    return "fix";
+  }
+  var ANNOTE_INTENT_LABELS = {
+    fix: "Fix",
+    ask: "Ask",
+    note: "Note"
+  };
+  var ANNOTE_INTENT_TOOLTIPS = {
+    fix: "Request a change to this UI.",
+    ask: "Ask the agent about this UI without requesting a change.",
+    note: "Leave context or feedback without requesting a change."
+  };
   var SENSITIVE_FIELD_PATTERN = /(password|passwd|pwd|secret|token|cookie|authorization|auth|api[-_]?key|access[-_]?key|session|credential)/i;
   var SENSITIVE_VALUE_PATTERN = /\b(Bearer\s+[A-Za-z0-9._~+/=-]+|sk-[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g;
   function isoFromTimestamp(value, fallback = (/* @__PURE__ */ new Date()).toISOString()) {
@@ -34505,7 +34596,7 @@
       id,
       status: raw.status === "acknowledged" || raw.status === "resolved" || raw.status === "dismissed" || raw.status === "detached" ? raw.status : "pending",
       feedback,
-      intent: cleanString(raw.intent, 80),
+      intent: normalizeAnnotationIntent(raw.intent),
       thread: threadFrom(raw.thread, feedback, createdAt),
       target: targetFrom(raw),
       targets: targetsFrom(raw),
@@ -34854,6 +34945,12 @@
       raf: null,
       resizeObserver: null,
       mutationObserver: null,
+      pageThemeObserver: null,
+      pageThemeFrame: null,
+      observedThemeBody: null,
+      colorSchemeQuery: null,
+      resolvedTheme: "dark",
+      themeTransitionTimer: null,
       composerPosition: null,
       composerAnchor: null,
       editingId: null,
@@ -34882,11 +34979,11 @@
       toolbarRailPinnedToDefault: true,
       toolbarDrag: null,
       suppressNextToolbarClick: false,
+      intentMenuOpen: false,
       interactionShield: null,
       structureOpen: false,
       structureAnimating: false,
-      structureChildrenExpanded: false,
-      structureSiblingsExpanded: false,
+      composerMultiline: false,
       styleScrollTop: 0,
       focusComposerOnRender: false,
       styleEditorOpening: false,
@@ -34966,14 +35063,71 @@
         return;
       }
       if (key === "reactContext" && !value) reactSourceCoordinator.cancel();
+      if (key === "theme") syncPageThemeObservation(true);
       if (renderAfter) render();
       ensureInteractionShield();
+    }
+    function applyResolvedTheme(theme) {
+      if (state.resolvedTheme === theme && state.rootHost?.dataset.annoteTheme === theme) return;
+      const shouldTransition = !!state.rootHost?.dataset.annoteTheme;
+      state.resolvedTheme = theme;
+      state.rootHost?.setAttribute("data-annote-theme", theme);
+      const layer = state.shadow?.querySelector(".fm-layer");
+      if (shouldTransition && layer) {
+        layer.classList.add("theme-transitioning");
+        if (state.themeTransitionTimer !== null) window.clearTimeout(state.themeTransitionTimer);
+        state.themeTransitionTimer = window.setTimeout(() => {
+          layer.classList.remove("theme-transitioning");
+          state.themeTransitionTimer = null;
+        }, 210);
+      }
+      layer?.setAttribute("data-theme", theme);
+      syncColorisTheme();
+    }
+    function reevaluatePageTheme() {
+      state.pageThemeFrame = null;
+      if (!state.mounted || state.settings.theme !== "opposite-page") return;
+      applyResolvedTheme(resolveTheme(state.settings.theme, detectPageTheme()));
+      connectPageThemeObserver();
+    }
+    function schedulePageThemeCheck() {
+      if (state.pageThemeFrame !== null || state.settings.theme !== "opposite-page") return;
+      state.pageThemeFrame = requestAnimationFrame(reevaluatePageTheme);
+    }
+    function disconnectPageThemeObserver() {
+      state.pageThemeObserver?.disconnect();
+      state.pageThemeObserver = null;
+      state.observedThemeBody = null;
+      if (state.pageThemeFrame !== null) cancelAnimationFrame(state.pageThemeFrame);
+      state.pageThemeFrame = null;
+      if (state.colorSchemeQuery) state.colorSchemeQuery.removeEventListener("change", schedulePageThemeCheck);
+      state.colorSchemeQuery = null;
+    }
+    function connectPageThemeObserver() {
+      if (state.settings.theme !== "opposite-page") return;
+      if (!state.pageThemeObserver) state.pageThemeObserver = new MutationObserver(schedulePageThemeCheck);
+      const body = document.body;
+      if (state.observedThemeBody === body) return;
+      state.pageThemeObserver.disconnect();
+      state.pageThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: [...THEME_ATTRIBUTE_FILTER] });
+      if (body) state.pageThemeObserver.observe(body, { attributes: true, attributeFilter: [...THEME_ATTRIBUTE_FILTER] });
+      state.observedThemeBody = body;
+    }
+    function syncPageThemeObservation(recheck) {
+      disconnectPageThemeObserver();
+      if (state.settings.theme === "opposite-page") {
+        connectPageThemeObserver();
+        state.colorSchemeQuery = matchMedia("(prefers-color-scheme: dark)");
+        state.colorSchemeQuery.addEventListener("change", schedulePageThemeCheck);
+        if (recheck) applyResolvedTheme(resolveTheme(state.settings.theme, detectPageTheme()));
+      } else {
+        applyResolvedTheme(state.settings.theme);
+      }
     }
     function restoreSelectionPausedAnimations() {
       const paused = state.selectionPausedAnimations;
       state.selectionPausedAnimations = [];
       paused.forEach(({ animation, originalPlayState }) => {
-        if (state.motionUserPaused.has(animation)) return;
         try {
           if (originalPlayState === "running") void animation.play();
         } catch {
@@ -35045,17 +35199,22 @@
       const lineHeight = parseFloat(cs.lineHeight) || 16;
       const padding = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
       input.style.height = "auto";
-      let lines;
-      if (form?.classList.contains("multiline") && bar) {
-        const toggle2 = bar.querySelector(".css-toggle");
-        const narrow = Math.max(80, bar.clientWidth - (toggle2?.offsetWidth ?? 0) - 18);
-        input.style.flex = `0 0 ${narrow}px`;
-        lines = (input.scrollHeight - padding) / lineHeight;
-        input.style.flex = "";
-      } else {
-        lines = (input.scrollHeight - padding) / lineHeight;
-      }
-      form?.classList.toggle("multiline", lines > 1.3);
+      const wrap = input.closest(".composer-input");
+      const intentEl = wrap?.querySelector("[data-intent-wrap]");
+      const micEl = wrap?.querySelector(".mic-btn");
+      const sendEl = wrap?.querySelector("[data-composer-submit]");
+      const narrow = Math.max(
+        80,
+        (wrap?.clientWidth ?? bar?.clientWidth ?? 240) - (intentEl?.offsetWidth ?? 56) - (micEl?.offsetWidth ?? 0) - (sendEl?.offsetWidth ?? 0) - 18
+      );
+      input.style.flex = "none";
+      input.style.width = `${narrow}px`;
+      const lines = (input.scrollHeight - padding) / lineHeight;
+      input.style.flex = "";
+      input.style.width = "";
+      state.composerMultiline = lines > 1.3;
+      form?.classList.toggle("multiline", state.composerMultiline);
+      input.style.height = "auto";
       input.style.height = `${Math.min(input.scrollHeight, 160 + padding)}px`;
     }
     let dictationSession = null;
@@ -35120,7 +35279,7 @@
       const gap = 2;
       const barWidth = Math.max(1, (width - gap * (bars - 1)) / bars);
       const radius = Math.min(1.5, barWidth / 2);
-      ctx.fillStyle = "rgba(255,255,255,.55)";
+      ctx.fillStyle = state.resolvedTheme === "light" ? "rgba(24,24,22,.68)" : "rgba(255,255,255,.55)";
       for (let i2 = 0; i2 < bars; i2 += 1) {
         const level = levels[i2] ?? 0.04;
         const barHeight = Math.max(2, level * height);
@@ -35131,7 +35290,7 @@
         ctx.fill();
       }
       if (!live) {
-        ctx.fillStyle = "rgba(255,255,255,.25)";
+        ctx.fillStyle = state.resolvedTheme === "light" ? "rgba(24,24,22,.2)" : "rgba(255,255,255,.25)";
         ctx.fillRect(0, 0, width, height);
       }
     }
@@ -35343,6 +35502,45 @@
           .clr-picker .clr-alpha {
             border-radius: 6px !important;
           }
+          .clr-picker .clr-preview,
+          .clr-picker .clr-preview::before,
+          .clr-picker .clr-preview::after,
+          .clr-picker .clr-preview button {
+            border-radius: 6px !important;
+          }
+          .clr-picker .clr-preview {
+            width: 26px !important;
+            height: 26px !important;
+          }
+          .clr-picker .clr-segmented {
+            border-radius: 6px !important;
+            overflow: hidden !important;
+          }
+          .clr-picker .clr-segmented label:first-of-type {
+            border-radius: 5px 0 0 5px !important;
+          }
+          .clr-picker .clr-segmented label:last-of-type {
+            border-radius: 0 5px 5px 0 !important;
+          }
+          .clr-picker[data-annote-theme="light"] {
+            background: #fff !important;
+            color: #181816 !important;
+            box-shadow: 0 20px 55px rgba(24,24,22,.18), 0 0 0 1px rgba(24,24,22,.1) !important;
+          }
+          .clr-picker[data-annote-theme="light"] input.clr-color {
+            border-color: rgba(24,24,22,.12) !important;
+            background: #f4f4f2 !important;
+            color: #181816 !important;
+          }
+          .clr-picker[data-annote-theme="light"] .clr-segmented {
+            border-color: transparent !important;
+            background: #efefed !important;
+            color: #6f6f6a !important;
+          }
+          .clr-picker[data-annote-theme="light"] .clr-segmented input:checked + label {
+            background: #181816 !important;
+            color: #fff !important;
+          }
         `;
       document.head.appendChild(theme);
     }
@@ -35384,7 +35582,7 @@
         el: input,
         wrap: false,
         theme: "default",
-        themeMode: "dark",
+        themeMode: state.resolvedTheme,
         format: "mixed",
         formatToggle: true,
         alpha: true,
@@ -35395,10 +35593,20 @@
         }
       });
       state.colorisInput = input;
+      syncColorisTheme();
     }
-    function prepareColoris(input) {
-      void ensureColorisAssets().then(() => configureColoris(input)).catch(() => {
-      });
+    function syncColorisTheme() {
+      const picker = document.querySelector(".clr-picker");
+      if (!picker) return;
+      picker.dataset.annoteTheme = state.resolvedTheme;
+      picker.classList.toggle("clr-dark", state.resolvedTheme === "dark");
+    }
+    async function prepareColoris(input) {
+      try {
+        await ensureColorisAssets();
+        configureColoris(input);
+      } catch {
+      }
     }
     function cleanupColorisAssets() {
       document.getElementById(COLORIS_STYLE_ID)?.remove();
@@ -36444,7 +36652,7 @@
         state.inspection = captureBaseInspection(target);
       }
       const comment = annotation?.comment || "";
-      const intent = annotation?.intent || "fix";
+      const intent = normalizeAnnotationIntent(annotation?.intent);
       const styleEdits = annotation?.styleEdits ? annotation.styleEdits.map((edit) => ({ ...edit })) : [];
       const animationTarget2 = state.selectedElements.length > 1 ? null : styleTargets[0] || element;
       const animationSelector = animationTarget2 ? selectorForElement(animationTarget2) : "";
@@ -36657,6 +36865,9 @@
         updateTextDraft(entry.previousValue, false);
         const input = state.shadow?.querySelector("[data-text-edit]");
         if (input) input.value = entry.previousValue;
+      } else if (entry.kind === "intent") {
+        draft.intent = entry.previousIntent;
+        render();
       } else {
         draft.activeState = entry.state;
         const existing2 = draft.styleEdits.find((edit) => edit.state === entry.state && edit.property === entry.property);
@@ -36693,6 +36904,7 @@
       state.cssOpen = false;
       state.styleEditorOpening = false;
       state.styleEditorClosing = false;
+      state.composerMultiline = false;
       state.draft = null;
       state.inspection = null;
       state.animations = [];
@@ -36700,7 +36912,9 @@
       state.motionScrub = null;
       state.motionGraphDrag = null;
       state.autocomplete = null;
+      state.intentMenuOpen = false;
       state.shiftSelecting = false;
+      if (state.active) setAnnotatingCursor(true);
       updateSelectionOverlay();
       resetStylePanelUiState();
     }
@@ -36716,6 +36930,7 @@
       state.cssOpen = false;
       state.styleEditorOpening = false;
       state.styleEditorClosing = false;
+      state.composerMultiline = false;
       state.draft = null;
       state.inspection = null;
       state.animations = [];
@@ -36723,6 +36938,7 @@
       state.motionScrub = null;
       state.motionGraphDrag = null;
       state.autocomplete = null;
+      state.intentMenuOpen = false;
       resetStylePanelUiState();
     }
     function requestCancelComposer() {
@@ -36823,7 +37039,7 @@
       if (enabled) {
         if (state.previousCursor === null) state.previousCursor = document.documentElement.style.cursor;
         if (state.previousBodyCursor === null) state.previousBodyCursor = document.body.style.cursor;
-        const cursor = commentCursor(state.shiftSelecting ? "#7dd3fc" : "#ff7a1a");
+        const cursor = commentCursor(state.shiftSelecting || state.selectedElements.length > 1 ? "#7dd3fc" : "#ff7a1a");
         document.documentElement.style.cursor = cursor;
         document.body.style.cursor = cursor;
         document.documentElement.classList.add("feedback-mark-picking");
@@ -36859,7 +37075,7 @@
     function makeAnnotation(element, form) {
       const rect = element.getBoundingClientRect();
       const comment = new FormData(form).get("comment")?.toString().trim() || "";
-      const intent = new FormData(form).get("intent")?.toString() || "fix";
+      const intent = normalizeAnnotationIntent(new FormData(form).get("intent")?.toString());
       const selectedElements = state.selectedElements.length > 1 ? state.selectedElements : [];
       const multiBox = selectedElements.length ? unionBoxForElements(selectedElements) : null;
       const multiSnapshots = selectedElements.map(snapshotForElement);
@@ -36938,7 +37154,7 @@
     }
     function composerPositionFor(element, anchor = state.composerAnchor) {
       const rect = element.getBoundingClientRect();
-      const width = Math.min(state.cssOpen ? 410 : 340, innerWidth - 24);
+      const width = Math.min(410, innerWidth - 24);
       const estimatedHeight = state.cssOpen ? 540 : 72;
       const anchorX = anchor?.x ?? rect.right;
       const anchorY = anchor?.y ?? rect.top;
@@ -37032,6 +37248,7 @@
       return `
       :host, * { box-sizing: border-box; }
       :host { all: initial; color-scheme: dark; }
+      :host([data-annote-theme="light"]) { color-scheme: light; }
       .fm-layer {
         position: fixed;
         inset: 0;
@@ -37042,14 +37259,42 @@
         --fm-orange: #ff7a1a;
         --fm-orange-strong: #ff8f3d;
         --fm-orange-soft: rgba(255,122,26,.16);
+        --fm-bg: #1a1a1a;
+        --fm-surface: #1a1a1a;
+        --fm-surface-secondary: #101010;
+        --fm-surface-dialog: #1c1c1e;
+        --fm-surface-subtle: rgba(255,255,255,.05);
+        --fm-surface-hover: rgba(255,255,255,.1);
+        --fm-border: rgba(255,255,255,.08);
+        --fm-border-strong: rgba(255,255,255,.12);
+        --fm-text-strong: rgba(255,255,255,.9);
+        --fm-text: rgba(255,255,255,.85);
+        --fm-text-muted: rgba(255,255,255,.58);
+        --fm-text-subtle: rgba(255,255,255,.42);
+        --fm-shadow: 0 4px 24px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.08);
+      }
+      .fm-layer[data-theme="light"] {
+        --fm-bg: #f3f2ef;
+        --fm-surface: #fbfaf8;
+        --fm-surface-secondary: #f1f0ed;
+        --fm-surface-dialog: #ffffff;
+        --fm-surface-subtle: rgba(24,24,22,.045);
+        --fm-surface-hover: rgba(24,24,22,.085);
+        --fm-border: rgba(24,24,22,.1);
+        --fm-border-strong: rgba(24,24,22,.16);
+        --fm-text-strong: rgba(24,24,22,.92);
+        --fm-text: rgba(24,24,22,.82);
+        --fm-text-muted: rgba(24,24,22,.62);
+        --fm-text-subtle: rgba(24,24,22,.46);
+        --fm-shadow: 0 4px 24px rgba(24,24,22,.14), 0 0 0 1px rgba(24,24,22,.1);
       }
       button, textarea, select, input { font: inherit; font-weight: 400; }
       button, select, label { cursor: pointer; font-weight: 400; }
       .toolbar, .composer, .panel, .tip, .launcher-wrap, .confirm, .confirm-scrim {
         pointer-events: auto;
-        background: #1a1a1a;
+        background: var(--fm-surface);
         border: 0;
-        box-shadow: 0 4px 24px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.08);
+        box-shadow: var(--fm-shadow);
         border-radius: 8px;
       }
       .toolbar {
@@ -37065,7 +37310,7 @@
         overflow: visible;
         backdrop-filter: blur(18px);
         transform-origin: right center;
-        color: rgba(255,255,255,.85);
+        color: var(--fm-text);
         border-radius: 14px 0 0 14px;
         box-shadow: 0 2px 8px rgba(0,0,0,.2), 0 4px 16px rgba(0,0,0,.1), 0 0 0 1px rgba(255,255,255,.06);
       }
@@ -37087,9 +37332,7 @@
         right: -1px;
         width: 19px;
         height: 19px;
-        background: #1a1a1a;
-        -webkit-mask: radial-gradient(circle at 0 0, transparent 18px, #000 19px);
-        mask: radial-gradient(circle at 0 0, transparent 18px, #000 19px);
+        background: radial-gradient(circle at 0 0, transparent 17px, var(--fm-border) 17px 18px, var(--fm-surface) 18px);
       }
       .toolbar::after,
       .launcher-wrap::after {
@@ -37097,9 +37340,7 @@
         right: -1px;
         width: 19px;
         height: 19px;
-        background: #1a1a1a;
-        -webkit-mask: radial-gradient(circle at 0 100%, transparent 18px, #000 19px);
-        mask: radial-gradient(circle at 0 100%, transparent 18px, #000 19px);
+        background: radial-gradient(circle at 0 100%, transparent 17px, var(--fm-border) 17px 18px, var(--fm-surface) 18px);
       }
       .toolbar.opening {
         animation: fm-toolbar-open 400ms cubic-bezier(.19,1,.22,1);
@@ -37183,10 +37424,10 @@
       .icon-btn, .btn {
         min-width: 40px;
         min-height: 40px;
-        border: 1px solid rgba(255,255,255,.12);
+        border: 1px solid var(--fm-border-strong);
         border-radius: 8px;
-        background: rgba(255,255,255,.05);
-        color: rgba(255,255,255,.85);
+        background: var(--fm-surface-subtle);
+        color: var(--fm-text);
         padding: 0;
         font-size: 12px;
         font-weight: 400;
@@ -37286,8 +37527,8 @@
         transform: translateY(7px) scale(.92);
         transform-origin: 50% 100%;
         border-radius: 8px;
-        background: #1a1a1a;
-        color: rgba(255,255,255,.9);
+        background: var(--fm-surface);
+        color: var(--fm-text-strong);
         box-shadow: 0 2px 8px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.12);
         transition:
           left 280ms cubic-bezier(.2,.8,.2,1),
@@ -37312,7 +37553,7 @@
       .toolbar-tooltip-copy,
       .toolbar-tooltip-sizer {
         white-space: nowrap;
-        padding: 6px 10px;
+        padding: 6px 6px;
         font-size: 12px;
         line-height: 16px;
         font-weight: 400;
@@ -37468,7 +37709,7 @@
         position: fixed;
         width: 28px;
         height: 28px;
-        border: 2px solid #fff;
+        border: 2px solid transparent;
         border-radius: 999px;
         display: grid;
         place-items: center;
@@ -37575,7 +37816,7 @@
       .marker-tip-copy { display: block; max-width: 100%; margin: 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.4; color: rgba(255,255,255,.85); }
       .composer {
         position: fixed;
-        width: min(340px, calc(100vw - 24px));
+        width: min(410px, calc(100vw - 24px));
         max-height: calc(100vh - 24px);
         overflow: hidden;
         padding: 8px 10px;
@@ -37606,6 +37847,10 @@
       }
       .composer.exiting {
         animation: fm-compose-out 150ms ease-in forwards;
+        pointer-events: none;
+      }
+      .composer.shift-selecting {
+        opacity: 0;
         pointer-events: none;
       }
       .composer.positioning {
@@ -37692,23 +37937,14 @@
       .composer.multiline .composer-bar > .css-toggle {
         align-self: flex-start;
       }
-      .composer-bar-actions {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .composer.multiline .composer-bar-actions {
-        flex: 1 1 100%;
-        display: flex;
-        justify-content: flex-end;
-      }
       .composer-bar textarea {
         flex: 1 1 0%;
         min-width: 0;
         min-height: 32px;
         max-height: 160px;
         padding: 7px 8px;
-        transition: flex-basis 220ms cubic-bezier(.2,.8,.2,1), min-height 220ms cubic-bezier(.2,.8,.2,1);
+        font-size: 13px;
+        transition: min-height 220ms cubic-bezier(.2,.8,.2,1);
       }
       .submit-icon {
         flex: 0 0 30px;
@@ -37724,16 +37960,6 @@
           flex-basis 220ms cubic-bezier(.2,.8,.2,1),
           width 220ms cubic-bezier(.2,.8,.2,1),
           min-width 220ms cubic-bezier(.2,.8,.2,1);
-      }
-      .composer.expanded .submit-icon {
-        flex-basis: 0;
-        width: 0;
-        min-width: 0;
-        opacity: 0;
-        transform: scale(.82);
-        overflow: hidden;
-        pointer-events: none;
-        border-width: 0;
       }
       .mic-btn {
         color: rgba(255,255,255,.75);
@@ -37765,9 +37991,9 @@
       }
       .dictation-stop {
         flex: 0 0 auto;
-        background: rgba(255,255,255,.14);
+        background: var(--fm-text-strong);
         border-color: transparent;
-        color: #fff;
+        color: var(--fm-surface);
       }
       .dictation-stop:hover {
         background: rgba(255,255,255,.2);
@@ -37775,14 +38001,20 @@
         transform: none;
       }
       .dictation-stop svg {
-        fill: #fff;
+        fill: currentColor;
       }
-      .mic-btn:hover,
-      .footer-mic:hover,
       .dictation-x:hover {
         transform: none;
         background: transparent;
         border-color: transparent;
+      }
+      .mic-btn:hover {
+        transform: translateY(-1px);
+        background: rgba(255,255,255,.1);
+        border-color: transparent;
+      }
+      .mic-btn:active {
+        transform: translateY(0) scale(.96);
       }
       .footer-mic {
         min-width: 30px;
@@ -37793,6 +38025,14 @@
         color: rgba(255,255,255,.75);
         background: transparent;
         border-color: transparent;
+      }
+      .footer-mic:hover {
+        transform: translateY(-1px);
+        background: rgba(255,255,255,.1);
+        border-color: transparent;
+      }
+      .footer-mic:active {
+        transform: translateY(0) scale(.96);
       }
       .footer-mic::after {
         content: "";
@@ -37839,8 +38079,8 @@
       }
       textarea:focus, select:focus, input:focus {
         outline: none;
-        border-color: rgba(255,122,26,.82);
-        box-shadow: inset 0 0 0 1px rgba(255,122,26,.42);
+        border-color: transparent;
+        box-shadow: none;
       }
       textarea::placeholder { color: rgba(255,255,255,.55); }
       .row { display: flex; gap: 8px; align-items: center; }
@@ -37854,6 +38094,14 @@
       }
       .composer-actions .text-btn {
         flex: 0 0 auto;
+        border-radius: 6px;
+        transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+      }
+      .composer-actions .text-btn:hover {
+        transform: translateY(-1px);
+      }
+      .composer-actions .text-btn:active {
+        transform: translateY(0) scale(.98);
       }
       .composer-action-spacer {
         flex: 1 1 auto;
@@ -37871,7 +38119,8 @@
       }
       .delete-current:hover {
         border-color: transparent;
-        background: rgba(255,255,255,.08);
+        background: transparent;
+        color: #f04438;
       }
       .text-btn {
         min-height: 28px;
@@ -37913,49 +38162,147 @@
         min-height: 28px;
         font-size: 11px;
       }
-      .intent-field {
+      .composer-input {
+        flex: 1 1 0%;
+        min-width: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 2px;
+        border: 1px solid rgba(255,255,255,.15);
+        border-radius: 8px;
+        background: rgba(255,255,255,.05);
+        padding: 2px 4px 2px 2px;
+      }
+      .composer-input .mic-btn {
+        flex: 0 0 auto;
+        width: 30px;
+        height: 30px;
+        min-width: 30px;
+        min-height: 30px;
+      }
+      .composer-input .submit-icon {
+        flex: 0 0 30px;
+      }
+      .composer.multiline .composer-input textarea {
+        order: -1;
+        flex: 1 1 100%;
+      }
+      .composer.multiline .composer-input .intent-wrap {
+        order: 0;
+      }
+      .composer.multiline .composer-input .mic-btn {
+        order: 1;
+        margin-left: auto;
+      }
+      .composer.multiline .composer-input .submit-icon {
+        order: 2;
+      }
+      .composer.multiline .intent-separator {
+        display: none;
+      }
+      .composer-input textarea {
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        padding-left: 4px;
+        padding-right: 4px;
+      }
+      .composer-input textarea:focus,
+      .composer-input textarea:focus-visible {
+        background: transparent;
+        border-color: transparent;
+        box-shadow: none;
+        outline: none;
+      }
+      .intent-wrap {
+        position: relative;
+        flex: 0 0 auto;
+        display: flex;
+        align-self: center;
+        align-items: center;
+        min-width: 0;
+      }
+      .intent-toggle {
+        display: inline-flex;
+        align-items: center;
+        align-self: center;
+        gap: 3px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 500;
+        font-family: inherit;
+        padding: 0 5px 0 8px;
+        min-height: 30px;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .intent-toggle:hover { background: rgba(255,255,255,.08); }
+      .intent-toggle svg {
+        width: 10px;
+        height: 10px;
+        opacity: .6;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: transform 160ms ease;
+      }
+      .intent-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+      .intent-separator {
+        width: 1px;
+        height: 22px;
+        flex: 0 0 auto;
+        align-self: center;
+        margin: 0 4px 0 2px;
+        background: rgba(255,255,255,.12);
+      }
+      .intent-menu {
+        position: fixed;
+        z-index: 30;
+        min-width: 148px;
         display: grid;
-        gap: 7px;
-        margin-top: 8px;
+        gap: 2px;
+        padding: 4px;
+        background: #1a1a1a;
+        border-radius: 8px;
+        box-shadow: 0 4px 24px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.08);
+        animation: fm-panel 160ms cubic-bezier(.2,.8,.2,1);
       }
-      .field-label {
-        color: rgba(255,255,255,.66);
-        font-size: 11px;
-      }
-      .intent-radios {
+      .intent-option {
         display: flex;
         align-items: center;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-      .intent-radios label { flex: 0 0 auto; }
-      .intent-radios input {
-        position: absolute;
-        opacity: 0;
-        pointer-events: none;
-      }
-      .intent-radios span {
-        min-height: 28px;
-        border: 1px solid transparent;
-        border-radius: 7px;
-        display: grid;
-        place-items: center;
-        padding: 0 10px;
-        color: rgba(255,255,255,.5);
+        gap: 8px;
+        width: 100%;
+        border: 0;
+        border-radius: 6px;
         background: transparent;
-        font-size: 11px;
-        font-weight: 400;
-        transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+        color: rgba(255,255,255,.85);
+        font-size: 12px;
+        font-family: inherit;
+        text-align: left;
+        padding: 7px 9px;
+        cursor: pointer;
       }
-      .intent-radios label:hover span {
-        transform: translateY(-1px);
-        border-color: transparent;
+      .intent-option:hover, .intent-option:focus-visible {
         background: rgba(255,255,255,.08);
+        outline: none;
       }
-      .intent-radios input:checked + span {
-        background: #fff;
-        border-color: #fff;
-        color: #050505;
+      .intent-option[aria-checked="true"] { color: #fff; }
+      .intent-option svg {
+        width: 12px;
+        height: 12px;
+        margin-left: auto;
+        flex: 0 0 auto;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
       .style-details {
         border: 1px solid rgba(255,255,255,.08);
@@ -38104,10 +38451,13 @@
       .drag-handle { cursor: grab; }
       .drag-handle:active { cursor: grabbing; }
       .drag-handle:hover,
-      .link-toggle:hover,
-      .link-toggle.linked {
+      .link-toggle:hover {
         background: rgba(255,255,255,.08);
         color: rgba(255,255,255,.9);
+      }
+      .link-toggle.linked {
+        background: rgba(14,165,233,.16);
+        color: #7dd3fc;
       }
       .drag-handle svg,
       .link-toggle svg {
@@ -38392,7 +38742,7 @@
         border-radius: 8px;
         overflow: hidden;
         background: rgba(255,255,255,.055);
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+        box-shadow: none;
       }
       .motion-graph svg {
         width: 100%;
@@ -38441,7 +38791,7 @@
         left: 2px;
         width: calc((100% - 4px) / 3);
         border-radius: 5px;
-        background: rgba(255,255,255,.13);
+        background: rgba(255,255,255,.2);
         box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
         transform: translateX(calc(var(--motion-tab-index, 0) * 100%));
         transition: transform 260ms cubic-bezier(.2, .8, .2, 1), width 260ms cubic-bezier(.2, .8, .2, 1);
@@ -38507,15 +38857,15 @@
         width: 1px;
         height: 10px;
         border-radius: 999px;
-        background: rgba(255,255,255,.2);
+        background: var(--fm-border-strong);
         transition: height 160ms cubic-bezier(.2,.8,.2,1), background 120ms ease, opacity 120ms ease;
       }
       .motion-tick.filled {
-        background: rgba(255,255,255,.9);
+        background: var(--fm-text-subtle);
       }
       .motion-tick.active {
         height: 18px;
-        background: rgba(255,255,255,.98);
+        background: var(--fm-text-muted);
       }
       .motion-scrubber:hover .motion-tick.active,
       .motion-scrubber.scrubbing .motion-tick.active {
@@ -38598,6 +38948,7 @@
         height: 28px;
         display: flex;
         align-items: center;
+        background: transparent;
       }
       .motion-range-fill {
         position: absolute;
@@ -38606,7 +38957,7 @@
         width: var(--motion-fill, 0%);
         height: 3px;
         border-radius: 999px;
-        background: rgba(255,255,255,.54);
+        background: var(--fm-text-subtle);
         transform: translateY(-50%);
         pointer-events: none;
       }
@@ -38621,13 +38972,13 @@
         margin: 0;
         appearance: none;
         -webkit-appearance: none;
-        background: transparent;
+        background: transparent !important;
         cursor: ew-resize;
       }
       .motion-range::-webkit-slider-runnable-track {
         height: 3px;
         border-radius: 999px;
-        background: rgba(255,255,255,.12);
+        background: var(--fm-border-strong);
       }
       .motion-range::-webkit-slider-thumb {
         appearance: none;
@@ -38637,25 +38988,25 @@
         margin-top: -9px;
         border: 0;
         border-radius: 4px;
-        background: rgba(205,208,218,.92);
+        background: #8a8987;
         box-shadow: 0 1px 2px rgba(0,0,0,.36);
       }
       .motion-range::-moz-range-track {
         height: 3px;
         border-radius: 999px;
-        background: rgba(255,255,255,.12);
+        background: var(--fm-border-strong);
       }
       .motion-range::-moz-range-progress {
         height: 3px;
         border-radius: 999px;
-        background: rgba(255,255,255,.54);
+        background: var(--fm-text-subtle);
       }
       .motion-range::-moz-range-thumb {
         width: 16px;
         height: 22px;
         border: 0;
         border-radius: 4px;
-        background: rgba(205,208,218,.92);
+        background: #8a8987;
         box-shadow: 0 1px 2px rgba(0,0,0,.36);
       }
       .motion-field.invalid .motion-input {
@@ -38990,7 +39341,7 @@
       .segment.active {
         background: #fff;
         border-color: #fff;
-        color: #111;
+        color: #181816;
       }
       .icon-segment {
         width: 26px;
@@ -39093,6 +39444,14 @@
         border-radius: 5px;
         box-shadow: inset 0 0 0 1px rgba(255,255,255,.28);
       }
+      .color-picker-swatch {
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+        background:
+          linear-gradient(var(--fm-swatch-color), var(--fm-swatch-color)),
+          conic-gradient(#d8d8d6 25%, #fff 0 50%, #d8d8d6 0 75%, #fff 0) 0 0 / 8px 8px;
+      }
       .coloris-input {
         flex: 1 1 auto !important;
         width: 100%;
@@ -39136,7 +39495,7 @@
         border-color: #f04438;
         box-shadow: inset 0 0 0 1px rgba(240,68,56,.35);
       }
-      .css-row.changed .css-name { color: rgba(255,255,255,.82); }
+      .css-row.changed .css-name { color: var(--fm-orange-strong); }
       .css-swatch {
         flex: 0 0 12px;
         width: 12px;
@@ -39277,10 +39636,49 @@
       .settings-row:hover {
         background: rgba(255,255,255,.055);
       }
+      .theme-settings-row { cursor: default; }
+      .theme-settings-row:hover { background: transparent; }
+      .theme-segments {
+        display: grid;
+        grid-template-columns: repeat(3, 24px);
+        gap: 1px;
+        padding: 0;
+        border-radius: 6px;
+        background: transparent;
+        box-shadow: none;
+      }
+      .theme-segment {
+        width: 24px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: 6px;
+        padding: 0;
+        background: transparent;
+        color: var(--fm-text-subtle);
+        box-shadow: none;
+        transition: background-color 180ms ease-out, color 180ms ease-out, box-shadow 180ms ease-out;
+      }
+      .theme-segment:hover { color: var(--fm-text); background: var(--fm-surface-subtle); }
+      .theme-segment.selected {
+        color: var(--fm-text-strong);
+        background: var(--fm-surface-hover);
+        box-shadow: none;
+      }
+      .theme-segment svg {
+        width: 12px;
+        height: 12px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
       .settings-row:focus-visible,
       .settings-back:focus-visible {
         outline: none;
-        box-shadow: 0 0 0 2px rgba(255,122,26,.42);
+        box-shadow: inset 0 0 0 1px rgba(255,122,26,.72);
       }
       .settings-row strong {
         display: block;
@@ -39330,7 +39728,7 @@
       }
       .settings-help-tip:focus-visible {
         outline: none;
-        box-shadow: 0 0 0 2px rgba(255,122,26,.42);
+        box-shadow: inset 0 0 0 1px rgba(255,122,26,.72);
       }
       .settings-row-meta {
         display: inline-flex;
@@ -39579,6 +39977,7 @@
         color: rgba(255,255,255,.36);
       }
       .item p { margin: 0; font-size: 12px; line-height: 1.4; color: rgba(255,255,255,.85); }
+      .item-body > p:first-child { font-weight: 500; }
       .item .meta { color: rgba(255,255,255,.4); }
       .react-chipline {
         display: flex;
@@ -39690,6 +40089,350 @@
         color: #f97066;
       }
       .hidden { display: none; }
+      .fm-layer.theme-transitioning,
+      .fm-layer.theme-transitioning :where(.toolbar, .composer, .panel, .tip, .launcher-wrap, .confirm, .toolbar-group-tooltip, .icon-btn, .btn, .text-btn, input, textarea, select, .settings-row, .settings-help-tip, .settings-toggle, .settings-toggle::after, .settings-command, .settings-kbd, .item, .item-head, .style-details, .structure-section, .structure-row, .token-menu, .intent-menu, .marker-tip, .toast) {
+        transition-property: background-color, color, border-color, box-shadow, fill, stroke;
+        transition-duration: 190ms;
+        transition-timing-function: ease-out;
+      }
+      .fm-layer[data-theme="light"] { color: var(--fm-text); }
+      .fm-layer[data-theme="light"] :where(.toolbar, .composer, .panel, .tip, .launcher-wrap, .toolbar-group-tooltip, .marker-tip, .confirm) {
+        background-color: var(--fm-surface);
+        color: var(--fm-text);
+        border-color: var(--fm-border);
+      }
+      .fm-layer[data-theme="light"] :where(.panel-head, .settings-section, .item, .style-details, .structure-section, .structure-group) {
+        border-color: var(--fm-border);
+      }
+      .fm-layer[data-theme="light"] :where(.icon-btn, .btn, input, textarea, select, .settings-help-tip, .settings-toggle, .settings-command, .settings-kbd, .item-head, .structure-row, .token-menu, .intent-menu) {
+        background-color: var(--fm-surface-subtle);
+        border-color: var(--fm-border-strong);
+        color: var(--fm-text);
+      }
+      .fm-layer[data-theme="light"] :where(h2, h3, strong, code, .field-label, .settings-row strong, .settings-state-title, .settings-command code) {
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] :where(p, .meta, .settings-row, .settings-copy, .settings-kv-row, .react-chipline) {
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] .item-body > p:first-child {
+        color: #181816;
+        font-weight: 500;
+      }
+      .fm-layer[data-theme="light"] .confirm {
+        background: var(--fm-surface-dialog);
+        color: var(--fm-text-strong);
+        box-shadow: 0 24px 64px rgba(24,24,22,.2), inset 0 0 0 1px var(--fm-border);
+      }
+      .fm-layer[data-theme="light"] .confirm p {
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] .confirm-actions button:not(.destructive) {
+        background: var(--fm-surface-hover);
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .notice:not(.notice-error) {
+        color: #9a6700;
+      }
+      .fm-layer[data-theme="light"] :where(.settings-version, .settings-row-meta, .settings-section-label, .item-index, .style-note, .structure-label) {
+        color: var(--fm-text-subtle);
+      }
+      .fm-layer[data-theme="light"] :where(.icon-btn:hover, .btn:hover, .settings-row:hover, .item-head:hover, .structure-row:hover) {
+        background-color: var(--fm-surface-hover);
+      }
+      .fm-layer[data-theme="light"] button {
+        border-color: transparent;
+        box-shadow: none;
+      }
+      .fm-layer[data-theme="light"] .settings-chevron {
+        color: var(--fm-text-subtle);
+      }
+      .fm-layer[data-theme="light"] .toolbar .icon-btn,
+      .fm-layer[data-theme="light"] .launcher.icon-btn {
+        background: transparent;
+        border-color: transparent;
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] .toolbar .icon-btn:hover,
+      .fm-layer[data-theme="light"] .launcher.icon-btn:hover,
+      .fm-layer[data-theme="light"] .toolbar .icon-btn.active-control {
+        background: var(--fm-surface-hover);
+        border-color: transparent;
+      }
+      .fm-layer[data-theme="light"] .toolbar .icon-btn.active-control,
+      .fm-layer[data-theme="light"] .toolbar .icon-btn.primary,
+      .fm-layer[data-theme="light"].active .toolbar .pick-toggle {
+        color: var(--fm-orange);
+      }
+      .fm-layer[data-theme="light"] .css-toggle {
+        background: transparent;
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] .css-toggle:hover,
+      .fm-layer[data-theme="light"] .css-toggle.open {
+        background: var(--fm-surface-hover);
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .toolbar-divider {
+        background: var(--fm-border-strong);
+      }
+      .fm-layer[data-theme="light"] .toolbar-group-tooltip {
+        box-shadow: var(--fm-shadow);
+      }
+      .fm-layer[data-theme="light"] .toolbar-tooltip-shortcut {
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] .theme-segments,
+      .fm-layer[data-theme="light"] .theme-segment {
+        border-color: transparent;
+        box-shadow: none;
+      }
+      .fm-layer[data-theme="light"] .theme-segment {
+        background: transparent;
+        color: var(--fm-text-subtle);
+      }
+      .fm-layer[data-theme="light"] .theme-segment:hover,
+      .fm-layer[data-theme="light"] .theme-segment.selected {
+        background: var(--fm-surface-hover);
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .composer,
+      .fm-layer[data-theme="light"] .style-details,
+      .fm-layer[data-theme="light"] .style-grid-wrap {
+        background: var(--fm-surface);
+        color: var(--fm-text);
+      }
+      .fm-layer[data-theme="light"] .state-tabs {
+        background: var(--fm-surface-secondary);
+      }
+      .fm-layer[data-theme="light"] :where(.state-tab, .state-count, .style-identity, .css-name, .motion-block-label, .motion-label, .motion-header span, .motion-meta, .motion-keyframes, .motion-timeline-time, .react-header, .react-component, .transcribing) {
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] :where(.state-tab:hover, .state-tab.active, .motion-pane-tab.active, .motion-metric strong) {
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] :where(.style-grid h3, .motion-block-label, .motion-label) {
+        color: var(--fm-text-muted);
+        border-color: var(--fm-border);
+      }
+      .fm-layer[data-theme="light"] :where(.style-identity, .motion-section, .react-section, .composer-actions) {
+        border-color: var(--fm-border);
+      }
+      .fm-layer[data-theme="light"] :where(.scope-toggle, .state-count, .motion-chip, .motion-button, .motion-tabs, .motion-tab-indicator, .motion-graph, .motion-metric, .segment, .link-state, .token-button) {
+        background: var(--fm-surface-subtle);
+        color: var(--fm-text-muted);
+        box-shadow: none;
+      }
+      .fm-layer[data-theme="light"] :where(.scope-option:not(.active), .state-tab, .motion-pane-tab, .stepper-btn, .drag-handle, .link-toggle) {
+        background: transparent;
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] :where(.state-tab:hover, .state-tab.active, .scope-option:not(.active):hover, .motion-chip:hover, .motion-button:hover, .motion-pane-tab:hover, .segment:hover, .stepper-btn:hover, .drag-handle:hover, .link-toggle:hover, .link-toggle.linked, .token-button:hover) {
+        background: var(--fm-surface-hover);
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .token-button.bound {
+        background: #e0f2fe;
+        color: #0284c7;
+      }
+      .fm-layer[data-theme="light"] .token-button.bound:hover {
+        background: #bae6fd;
+        color: #181816;
+      }
+      .fm-layer[data-theme="light"] .link-toggle.linked {
+        background: #e0f2fe;
+        color: #0369a1;
+      }
+      .fm-layer[data-theme="light"] :where(.composer-input, .css-input, .text-edit-input, .motion-input, .font-trigger, .color-control, .box-input) {
+        background: var(--fm-surface-secondary);
+        color: var(--fm-text-strong);
+        border-color: transparent;
+      }
+      .fm-layer[data-theme="light"] .composer-input textarea,
+      .fm-layer[data-theme="light"] .coloris-input {
+        background: transparent !important;
+        color: var(--fm-text-strong) !important;
+      }
+      .fm-layer[data-theme="light"] textarea::placeholder {
+        color: var(--fm-text-subtle);
+      }
+      .fm-layer[data-theme="light"] .intent-toggle {
+        background: transparent;
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .intent-toggle:hover {
+        background: var(--fm-surface-hover);
+      }
+      .fm-layer[data-theme="light"] .intent-separator {
+        background: var(--fm-border-strong);
+      }
+      .fm-layer[data-theme="light"] :where(.intent-menu, .font-menu, .token-menu, .autocomplete) {
+        background: var(--fm-surface-dialog);
+        color: var(--fm-text);
+        border-color: transparent;
+        box-shadow: var(--fm-shadow);
+      }
+      .fm-layer[data-theme="light"] :where(.intent-option, .font-option, .token-option, .autocomplete-option) {
+        background: transparent;
+        color: var(--fm-text);
+      }
+      .fm-layer[data-theme="light"] :where(.intent-option:hover, .intent-option:focus-visible, .intent-option[aria-checked="true"], .font-option:hover, .font-option.active, .token-option:hover, .token-option.current, .autocomplete-option:hover, .autocomplete-option.active) {
+        background: var(--fm-surface-hover);
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] :where(.token-menu-group, .token-name) {
+        color: var(--fm-text);
+      }
+      .fm-layer[data-theme="light"] .token-value {
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] .token-current {
+        color: var(--fm-orange-strong);
+      }
+      .fm-layer[data-theme="light"] .token-pill {
+        color: #075985;
+        box-shadow: inset 0 0 0 1px rgba(3,105,161,.22);
+      }
+      .fm-layer[data-theme="light"] .token-pill small {
+        color: #0c4a6e;
+      }
+      .fm-layer[data-theme="light"] .motion-graph-grid { stroke: var(--fm-border); }
+      .fm-layer[data-theme="light"] .motion-graph-guide { stroke: var(--fm-border-strong); }
+      .fm-layer[data-theme="light"] .motion-graph-curve { stroke: var(--fm-text-muted); }
+      .fm-layer[data-theme="light"] .marker {
+        border-color: transparent;
+        box-shadow: 0 10px 26px rgba(24,24,22,.24);
+      }
+      .fm-layer[data-theme="light"] :where(.settings-back, .settings-command button, .settings-link-button) {
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .settings-back,
+      .fm-layer[data-theme="light"] .settings-command button {
+        background: var(--fm-surface-hover);
+      }
+      .fm-layer[data-theme="light"] .style-change-head {
+        background: var(--fm-surface-secondary);
+        color: var(--fm-text-muted);
+        border-color: var(--fm-border);
+      }
+      .fm-layer[data-theme="light"] .style-change-head strong {
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .state-tab.active .state-count {
+        background: rgba(24,24,22,.08);
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] .structure-section {
+        background: var(--fm-surface-secondary);
+        border-color: var(--fm-border);
+      }
+      .fm-layer[data-theme="light"] :where(.structure-header, .structure-row, .structure-row.is-parent) {
+        color: var(--fm-text-muted);
+        border-color: transparent;
+      }
+      .fm-layer[data-theme="light"] :where(.structure-header:hover, .structure-row:hover, .structure-row.is-parent:hover) {
+        color: var(--fm-text-strong);
+        border-color: transparent;
+      }
+      .fm-layer[data-theme="light"] .structure-header:hover {
+        background: transparent;
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .structure-row,
+      .fm-layer[data-theme="light"] .structure-row.is-parent {
+        background: rgba(24,24,22,.11);
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .structure-row:hover,
+      .fm-layer[data-theme="light"] .structure-row.is-parent:hover {
+        background: rgba(24,24,22,.16);
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] :where(.structure-chevron, .structure-count, .structure-empty) {
+        color: var(--fm-text-subtle);
+      }
+      .fm-layer[data-theme="light"] .structure-row.selected {
+        background: #181816;
+        color: #fff;
+        border-color: transparent;
+      }
+      .fm-layer[data-theme="light"] .structure-row .secondary {
+        color: var(--fm-text-subtle);
+      }
+      .fm-layer[data-theme="light"] .structure-row.selected .secondary {
+        color: rgba(255,255,255,.68);
+      }
+      .fm-layer[data-theme="light"] :where(.composer-actions .text-btn, .text-btn.ghost, .delete-current, .footer-mic) {
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] .composer-actions [data-action="cancel-compose"] {
+        background: var(--fm-surface-hover);
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] :where(.composer-actions .text-btn:not(.primary):hover, .text-btn.ghost:hover, .delete-current:hover, .footer-mic:hover) {
+        background: var(--fm-surface-hover);
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .delete-current:hover {
+        background: transparent;
+        color: #d92d20;
+      }
+      .fm-layer[data-theme="light"] .toolbar .icon-btn.danger:not([aria-disabled="true"]):hover {
+        color: #d92d20;
+      }
+      .fm-layer[data-theme="light"] .text-btn:disabled {
+        color: var(--fm-text-subtle);
+      }
+      .fm-layer[data-theme="light"] .segment.active {
+        background: #181816;
+        color: #fff;
+        border-color: transparent;
+      }
+      .fm-layer[data-theme="light"] .segment:not(.active) {
+        background: rgba(24,24,22,.09);
+        color: var(--fm-text-muted);
+      }
+      .fm-layer[data-theme="light"] .segment:not(.active):hover {
+        background: rgba(24,24,22,.14);
+        color: var(--fm-text-strong);
+      }
+      .fm-layer[data-theme="light"] .css-row.changed .css-name {
+        color: var(--fm-orange-strong);
+      }
+      .fm-layer[data-theme="light"] .submit-icon.primary {
+        background: var(--fm-orange);
+        color: #140700;
+      }
+      .fm-layer[data-theme="light"] .dictation-stop {
+        background: var(--fm-text-strong);
+        color: var(--fm-surface);
+      }
+      .fm-layer[data-theme="light"] .motion-tab-indicator {
+        background: rgba(24,24,22,.16);
+      }
+      .fm-layer[data-theme="light"] .motion-range::-webkit-slider-thumb {
+        background: #6f6e6b;
+      }
+      .fm-layer[data-theme="light"] .motion-range::-moz-range-thumb {
+        background: #6f6e6b;
+      }
+      .fm-layer[data-theme="light"] .motion-metric span {
+        color: var(--fm-text-subtle);
+      }
+      .fm-layer[data-theme="light"] .motion-metric strong {
+        color: var(--fm-text-strong);
+      }
+      .fm-layer :where(textarea, input, select, .composer-input, .font-trigger, .color-control, .motion-input, .css-input, .text-edit-input) {
+        border-color: transparent !important;
+        outline: none;
+        box-shadow: none;
+      }
+      .fm-layer :where(textarea, input, select, .composer-input, .font-trigger, .color-control, .motion-input, .css-input, .text-edit-input):focus,
+      .fm-layer :where(.composer-input, .color-control):focus-within {
+        border-color: transparent !important;
+        outline: none;
+        box-shadow: none;
+      }
       @keyframes fm-tooltip-in {
         from { opacity: 0; visibility: visible; }
         to { opacity: 1; visibility: visible; }
@@ -39836,12 +40579,12 @@
       .icon-btn:focus-visible,
       .btn:focus-visible,
       .text-btn:focus-visible {
-        outline: 2px solid #ff7a1a;
-        outline-offset: 2px;
+        outline: none;
+        box-shadow: inset 0 0 0 1px #ff7a1a;
       }
-      .fm-layer :focus-visible {
-        outline: 2px solid #ff7a1a;
-        outline-offset: 2px;
+      .fm-layer :focus-visible:not(input):not(textarea):not(select) {
+        outline: none;
+        box-shadow: inset 0 0 0 1px #ff7a1a;
       }
       @media (prefers-reduced-motion: reduce) {
         .confirm, .confirm.closing { animation: none; }
@@ -39876,8 +40619,9 @@
       .structure-section {
         margin-top: 8px;
         background: rgba(255,255,255,.03);
-        border: 1px solid rgba(255,255,255,.06);
-        border-radius: 0 0 6px 6px;
+        border: 0;
+        border-top: 1px solid var(--fm-border);
+        border-radius: 0;
         padding: 6px 0;
         overflow: hidden;
       }
@@ -39895,7 +40639,7 @@
         cursor: pointer;
         padding: 0 9px;
       }
-      .structure-header:hover { color: #fff; }
+      .structure-header:hover { background: transparent; color: #fff; }
       .structure-chevron {
         display: inline-grid;
         place-items: center;
@@ -39914,8 +40658,7 @@
         stroke-linecap: round;
         stroke-linejoin: round;
       }
-      .structure-section.open .structure-chevron { transform: rotate(90deg); }
-      .structure-toggle[aria-expanded="true"] .structure-chevron { transform: rotate(90deg); }
+      .structure-section.open > .structure-header .structure-chevron { transform: rotate(90deg); }
       .structure-body {
         display: grid;
         grid-template-rows: 1fr;
@@ -39937,13 +40680,14 @@
       .structure-group {
         display: grid;
         gap: 4px;
-        padding: 8px 0 0;
+        padding: 0;
         border-top: 1px solid rgba(255,255,255,.06);
       }
       .structure-group:first-child { padding-top: 0; border-top: 0; }
       .structure-label {
         display: flex;
         align-items: center;
+        gap: 6px;
         min-height: 20px;
         color: rgba(255,255,255,.45);
         font-size: 10px;
@@ -39951,36 +40695,13 @@
         letter-spacing: 0.04em;
         padding: 0 1px;
       }
-      .structure-toggle {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        width: 100%;
-        min-height: 22px;
-        border: 0;
-        background: transparent;
-        color: rgba(255,255,255,.45);
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        cursor: pointer;
-        padding: 0 1px;
-        text-align: left;
-      }
-      .structure-toggle:hover { color: rgba(255,255,255,.72); }
-      .structure-toggle .structure-chevron { color: inherit; }
       .structure-list {
         display: grid;
-        grid-template-rows: 1fr;
-        opacity: 1;
-        transition: grid-template-rows 200ms cubic-bezier(.2,.8,.2,1), opacity 160ms ease;
         gap: 4px;
-      }
-      .structure-list.collapsed {
-        display: none;
       }
       .structure-list-inner {
         overflow: hidden;
+        min-height: 0;
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
@@ -40003,8 +40724,8 @@
         max-width: 100%;
       }
       .structure-row:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.1); }
-      .structure-row.selected { background: #fff; color: #111; border-color: #fff; }
-      .structure-row.selected .secondary { color: rgba(17,17,17,.55); }
+      .structure-row.selected { background: #fff; color: #181816; border-color: #fff; }
+      .structure-row.selected .secondary { color: rgba(24,24,22,.58); }
       .structure-row.is-parent { background: rgba(255,255,255,.08); color: rgba(255,255,255,.85); }
       .structure-row.is-parent:hover { background: rgba(255,255,255,.12); }
       .structure-row .primary { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -40047,7 +40768,7 @@
         lines.push(`### Annotation #${index + 1}: ${annotation.id}`);
         lines.push(`- Element: ${annotation.element}`);
         lines.push(`- Path: ${annotation.elementPath}`);
-        lines.push(`- Intent: ${annotation.intent || "fix"}`);
+        lines.push(`- Intent: ${normalizeAnnotationIntent(annotation.intent)}`);
         lines.push(`- Status: ${annotation.status || "pending"}`);
         if (annotation.boundingBox) {
           lines.push(
@@ -40252,10 +40973,6 @@
       ${context.key ? `<span class="meta">key ${escapeHtml(context.key)}</span>` : ""}
       ${source ? `<span class="meta">${escapeHtml(source)}</span>` : ""}
     </div>`;
-    }
-    function intentChecked(value) {
-      const current = state.editingId ? state.annotations.find((annotation) => annotation.id === state.editingId)?.intent || "fix" : "fix";
-      return current === value ? "checked" : "";
     }
     function cssColorSwatch(value, extraAttrs = "") {
       return typeof CSS !== "undefined" && CSS.supports("color", value.trim()) ? `<span class="css-swatch" style="background:${escapeHtml(value.trim())}" aria-hidden="true" ${extraAttrs}></span>` : "";
@@ -40534,8 +41251,9 @@
     </span>`;
     }
     function renderColorControl(row, value, valid) {
+      const swatch = isConcreteColorValue(value) ? `<button class="css-swatch color-picker-swatch" type="button" style="--fm-swatch-color:${escapeHtml(value)}" data-action="open-coloris" data-color-swatch="${escapeHtml(row.property)}" aria-label="Open ${escapeHtml(propertyLabel(row.property))} color picker"></button>` : "";
       return `<span class="color-control">
-      ${isConcreteColorValue(value) ? cssColorSwatch(value, `data-color-swatch="${escapeHtml(row.property)}"`) : ""}
+      ${swatch}
       <input class="css-input coloris-input" value="${escapeHtml(value)}" data-coloris data-coloris-input data-property="${escapeHtml(row.property)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(row.property)} color value" aria-invalid="${valid ? "false" : "true"}">
     </span>`;
     }
@@ -40544,20 +41262,29 @@
       if (parts.length !== 4) return renderCssInput(row, value, valid);
       const boxKey = editorStateKey(row.property);
       const linked = boxValueIsLinked(value) && !state.unlinkedBoxProperties[boxKey];
-      const sides = [
-        ["top", "side-top", parts[0]],
-        ["right", "side-right", parts[1]],
-        ["bottom", "side-bottom", parts[2]],
-        ["left", "side-left", parts[3]]
+      const positions = row.property === "border-radius" ? [
+        ["Top left", parts[0]],
+        ["Top right", parts[1]],
+        ["Bottom right", parts[2]],
+        ["Bottom left", parts[3]]
+      ] : [
+        ["Top", parts[0]],
+        ["Right", parts[1]],
+        ["Bottom", parts[2]],
+        ["Left", parts[3]]
       ];
+      const tooltipProperty = row.property === "border-radius" ? "Border Radius" : propertyLabel(row.property);
       const linkTip = linked ? `Unlink ${propertyLabel(row.property)} sides` : `Link ${propertyLabel(row.property)} sides`;
       return `<span class="box-control ${linked ? "linked" : "unlinked"}">
       <button class="link-toggle ${linked ? "linked" : "unlinked"}" type="button" data-action="toggle-box-link" data-property="${escapeHtml(row.property)}" data-current-box="${escapeHtml(value)}" data-original-value="${escapeHtml(row.value)}" aria-label="${escapeHtml(linkTip)}" data-tooltip="${escapeHtml(linkTip)}">${icon(linked ? "link" : "unlink")}</button>
       <span class="padding-control">
-        ${sides.map(
-        ([side, _iconName, sideValue], index) => `<label class="box-side" aria-label="${escapeHtml(`${propertyLabel(row.property)} ${side}`)}">
-              <input class="css-input box-input" value="${escapeHtml(sideValue)}" data-box-part="${index}" data-box-linked="${linked ? "true" : "false"}" data-property="${escapeHtml(row.property)}" data-original-value="${escapeHtml(row.value)}" data-current-box="${escapeHtml(value)}" aria-label="${escapeHtml(row.property)} ${side}">
-            </label>`
+        ${positions.map(
+        ([position, sideValue], index) => {
+          const inputLabel = `${tooltipProperty} ${position}`;
+          return `<label class="box-side" aria-label="${escapeHtml(inputLabel)}">
+                <input class="css-input box-input" value="${escapeHtml(sideValue)}" data-box-part="${index}" data-box-linked="${linked ? "true" : "false"}" data-property="${escapeHtml(row.property)}" data-original-value="${escapeHtml(row.value)}" data-current-box="${escapeHtml(value)}" aria-label="${escapeHtml(inputLabel)}" data-tooltip="${escapeHtml(inputLabel)}">
+              </label>`;
+        }
       ).join("")}
       </span>
     </span>`;
@@ -40605,7 +41332,7 @@
       if (config.control === "compound") {
         const boxKey = editorStateKey(row.property);
         const linked = boxValueIsLinked(value) && !state.unlinkedBoxProperties[boxKey];
-        if (row.property === "padding" || row.property === "border-width" || row.property === "border-radius" && !linked) {
+        if (["padding", "margin", "border-width", "border-radius"].includes(row.property)) {
           return `<div class="${className}">
           ${renderPropertyName(row)}
           ${renderTokenizedControl(row, value, renderBoxSideControl(row, value, valid))}
@@ -40991,10 +41718,8 @@
       const chevronIcon = () => `<span class="structure-chevron">${icon("chevron-right")}</span>`;
       const parentRow = data.parent ? renderRow(data.parent, { isParent: true }) : `<div class="structure-empty">No parent</div>`;
       const selectedRow = renderRow(data.selected, { isSelected: true });
-      const childrenCountLabel = `${data.children.length}${data.childrenTruncated ? ` +${data.childrenTruncated} more` : ""}`;
-      const siblingsCountLabel = `${data.siblings.length}${data.siblingsTruncated ? ` +${data.siblingsTruncated} more` : ""}`;
-      const childrenListInner = state.structureChildrenExpanded ? data.children.map((el) => renderRow(el)).join("") + (data.childrenTruncated ? `<div class="structure-empty">+${data.childrenTruncated} more</div>` : "") : data.children.slice(0, 8).map((el) => renderRow(el)).join("") + (data.children.length ? "" : `<div class="structure-empty">No children</div>`) + (data.childrenTruncated ? `<div class="structure-empty">+${data.childrenTruncated} more</div>` : "");
-      const siblingsListInner = state.structureSiblingsExpanded ? data.siblings.map((el) => renderRow(el)).join("") + (data.siblingsTruncated ? `<div class="structure-empty">+${data.siblingsTruncated} more</div>` : "") : data.siblings.slice(0, 8).map((el) => renderRow(el)).join("") + (data.siblings.length ? "" : `<div class="structure-empty">No siblings</div>`) + (data.siblingsTruncated ? `<div class="structure-empty">+${data.siblingsTruncated} more</div>` : "");
+      const childrenListInner = data.children.map((el) => renderRow(el)).join("") + (data.children.length ? "" : `<div class="structure-empty">No children</div>`) + (data.childrenTruncated ? `<div class="structure-empty">+${data.childrenTruncated} more</div>` : "");
+      const siblingsListInner = data.siblings.map((el) => renderRow(el)).join("") + (data.siblings.length ? "" : `<div class="structure-empty">No siblings</div>`) + (data.siblingsTruncated ? `<div class="structure-empty">+${data.siblingsTruncated} more</div>` : "");
       return `<section class="structure-section ${isOpen ? "open" : ""}" data-structure-section>
       <button class="structure-header" type="button" data-action="toggle-structure" aria-expanded="${isOpen ? "true" : "false"}">
         ${chevronIcon()} Structure
@@ -41010,16 +41735,58 @@
             ${selectedRow}
           </div>
           <div class="structure-group">
-            <button class="structure-toggle" type="button" data-action="toggle-structure-children" aria-expanded="${state.structureChildrenExpanded ? "true" : "false"}">${chevronIcon()} Children <span class="structure-count">${childrenCountLabel}</span></button>
-            <div class="structure-list ${state.structureChildrenExpanded ? "" : "collapsed"}"><div class="structure-list-inner">${childrenListInner}</div></div>
+            <div class="structure-label">Children</div>
+            <div class="structure-list" data-structure-list="children"><div class="structure-list-inner">${childrenListInner}</div></div>
           </div>
           <div class="structure-group">
-            <button class="structure-toggle" type="button" data-action="toggle-structure-siblings" aria-expanded="${state.structureSiblingsExpanded ? "true" : "false"}">${chevronIcon()} Siblings <span class="structure-count">${siblingsCountLabel}</span></button>
-            <div class="structure-list ${state.structureSiblingsExpanded ? "" : "collapsed"}"><div class="structure-list-inner">${siblingsListInner}</div></div>
+            <div class="structure-label">Siblings</div>
+            <div class="structure-list" data-structure-list="siblings"><div class="structure-list-inner">${siblingsListInner}</div></div>
           </div>
         </div>
       </div>
     </section>`;
+    }
+    function renderIntentSelector() {
+      const current = state.draft?.intent || "fix";
+      const open = state.intentMenuOpen;
+      const options = ANNOTE_INTENTS.map((value) => {
+        const selected = current === value;
+        return `<button class="intent-option" type="button" role="menuitemradio" aria-checked="${selected ? "true" : "false"}" data-action="set-intent" data-intent="${value}" data-intent-option data-tooltip="${escapeHtml(ANNOTE_INTENT_TOOLTIPS[value])}" data-tooltip-side="right" data-tooltip-wrap data-tooltip-delay="220" data-tooltip-hover-only><span>${escapeHtml(ANNOTE_INTENT_LABELS[value])}</span>${selected ? icon("check") : ""}</button>`;
+      }).join("");
+      let menuStyle = "";
+      if (open) {
+        const rect = state.shadow?.querySelector("[data-intent-toggle]")?.getBoundingClientRect();
+        if (rect) {
+          const width = 156;
+          const height = 118;
+          const left = Math.max(8, Math.min(innerWidth - width - 8, rect.left - 4));
+          const below = rect.bottom + 6;
+          const top = below + height <= innerHeight - 8 ? below : Math.max(8, rect.top - 6 - height);
+          menuStyle = ` style="left:${Math.round(left)}px;top:${Math.round(top)}px;"`;
+        }
+      }
+      return `<span class="intent-wrap" data-intent-wrap>
+      <button class="intent-toggle" type="button" data-action="toggle-intent-menu" data-intent-toggle aria-haspopup="menu" aria-expanded="${open ? "true" : "false"}" aria-label="Annotation intent: ${escapeHtml(ANNOTE_INTENT_LABELS[current])}"><span>${escapeHtml(ANNOTE_INTENT_LABELS[current])}</span>${icon("chevron-down")}</button>
+      <span class="intent-separator" aria-hidden="true"></span>
+      ${open ? `<div class="intent-menu" role="menu" aria-label="Annotation intent" data-intent-menu${menuStyle}>${options}</div>` : ""}
+    </span>`;
+    }
+    function setIntentMenuOpen(open) {
+      if (!state.draft || state.intentMenuOpen === open) return;
+      state.intentMenuOpen = open;
+      render();
+    }
+    function chooseIntent(raw) {
+      const draft = state.draft;
+      if (!draft || raw !== "fix" && raw !== "ask" && raw !== "note") return;
+      if (draft.intent !== raw) {
+        draft.undoStack.push({ kind: "intent", previousIntent: draft.intent });
+        draft.intent = raw;
+      }
+      state.intentMenuOpen = false;
+      render();
+      syncComposerSubmitState();
+      state.shadow?.querySelector("[data-composer] textarea")?.focus();
     }
     function renderComposer(composerTarget, composerPosition, editingAnnotation) {
       const draft = state.draft;
@@ -41044,9 +41811,11 @@
         </div>` : state.dictation.status === "transcribing" ? `<div class="dictation-row" role="group" aria-label="Transcribing">
           <button class="icon-btn dictation-x" data-action="dictation-cancel" data-dictation-cancel type="button" aria-label="Cancel dictation">${icon("cross")}</button>
           <span class="transcribing" role="status"><span class="pulse-dot" aria-hidden="true"></span>Transcribing\u2026</span>
-        </div>` : `<textarea name="comment" placeholder="${state.cssOpen ? "Describe these changes..." : "Add a comment..."}" rows="1">${escapeHtml(draft?.comment ?? editingAnnotation?.comment ?? "")}</textarea>
-        ${showTopMic || !state.cssOpen ? `<span class="composer-bar-actions">${showTopMic ? `<button class="icon-btn mic-btn" data-action="dictation-mic" type="button" aria-label="Start dictation">${icon("mic")}</button>` : ""}${!state.cssOpen ? `<button class="icon-btn primary submit-icon ${showTopSend && meaningful ? "" : "hidden"}" aria-label="${submitLabel} annotation" type="submit" data-composer-submit ${meaningful ? "" : "disabled"}>${icon("check")}</button>` : ""}</span>` : ""}`;
-      return `<form class="composer ${entering} ${showStyleEditor ? "expanded" : ""} ${composerPosition.opensUp ? "opens-up" : ""} ${state.composerShake ? "shake" : ""}" data-composer data-placement="${composerPosition.opensUp ? "above" : "below"}" style="left:${composerPosition.left}px;${composerPosition.opensUp ? `bottom:${composerPosition.bottom}px` : `top:${composerPosition.top}px`}">
+        </div>` : `<div class="composer-input">${renderIntentSelector()}<textarea name="comment" placeholder="Describe your changes..." rows="1">${escapeHtml(draft?.comment ?? editingAnnotation?.comment ?? "")}</textarea>
+        <input type="hidden" name="intent" value="${escapeHtml(draft?.intent || "fix")}">
+        ${showTopMic ? `<button class="icon-btn mic-btn" data-action="dictation-mic" type="button" aria-label="Start dictation">${icon("mic")}</button>` : ""}
+        ${!state.cssOpen ? `<button class="icon-btn primary submit-icon ${showTopSend && meaningful ? "" : "hidden"}" aria-label="${submitLabel} annotation" type="submit" data-composer-submit ${meaningful ? "" : "disabled"}>${icon("check")}</button>` : ""}</div>`;
+      return `<form class="composer ${entering} ${showStyleEditor ? "expanded" : ""} ${state.composerMultiline ? "multiline" : ""} ${composerPosition.opensUp ? "opens-up" : ""} ${state.composerShake ? "shake" : ""} ${state.shiftSelecting ? "shift-selecting" : ""}" data-composer data-placement="${composerPosition.opensUp ? "above" : "below"}" style="left:${composerPosition.left}px;${composerPosition.opensUp ? `bottom:${composerPosition.bottom}px` : `top:${composerPosition.top}px`}">
       <div class="composer-bar">
         <button class="icon-btn css-toggle ${state.cssOpen ? "open" : ""} ${state.styleEditorClosing ? "closing" : ""}" data-action="toggle-css" type="button" aria-label="${state.cssOpen ? "Hide" : "Show"} element CSS" aria-expanded="${state.cssOpen}" aria-controls="feedback-mark-element-css">${icon("paint")}</button>
         ${topField}
@@ -41061,7 +41830,6 @@
               </span>
               <span class="composer-action-spacer"></span>
               <span class="footer-group footer-right">
-                ${controls.footerRight?.includes("mic") ? `<button class="icon-btn footer-mic" data-action="dictation-mic" type="button" aria-label="Start dictation">${icon("mic")}</button>` : ""}
                 ${textButton("", submitLabel, "primary compact", "submit", `data-composer-submit ${!controls.saveDisabled && meaningful ? "" : "disabled"}`)}
               </span>
             </div>` : ""}
@@ -41221,8 +41989,12 @@
       const play = root.querySelector("[data-motion-play]");
       if (play) {
         const running = isMotionRunning(animation);
-        play.innerHTML = icon(running ? "pause" : "play");
-        play.setAttribute("aria-label", running ? "Pause animation" : "Play animation");
+        const label = running ? "Pause animation" : "Play animation";
+        if (play.getAttribute("aria-label") !== label || !play.dataset.motionIcon) {
+          play.innerHTML = icon(running ? "pause" : "play");
+          play.setAttribute("aria-label", label);
+          play.dataset.motionIcon = running ? "pause" : "play";
+        }
       }
     }
     function shouldMonitorMotion() {
@@ -41264,14 +42036,10 @@
         control.classList.toggle("active", active);
         control.setAttribute("aria-selected", active ? "true" : "false");
       });
-      const panel = root?.querySelector(".motion-tab-panel");
-      panel?.classList.add("exiting");
       state.motionPaneTab = tab;
       state.draft.motionPaneTab = tab;
       animateMotionGraphTab(previousTab, tab);
-      window.setTimeout(() => {
-        updateMotionFieldsPanel();
-      }, 140);
+      updateMotionFieldsPanel();
     }
     function updateMotionFieldsPanel() {
       const panel = state.shadow?.querySelector(".motion-tab-panel");
@@ -41279,22 +42047,21 @@
       const edit = selectedAnimationEdit();
       if (!panel || !selected || !edit) return;
       const startHeight = panel.getBoundingClientRect().height;
-      panel.style.height = `${startHeight}px`;
       panel.innerHTML = renderMotionPaneContent(selected, edit, motionDuration(selected, edit));
       panel.setAttribute("data-motion-tab-panel", state.draft?.motionPaneTab || state.motionPaneTab);
       bindMotionInputs(panel);
       const endHeight = panel.scrollHeight;
-      panel.classList.remove("exiting");
-      if (!prefersReducedMotion()) {
-        panel.animate([{ height: `${startHeight}px`, opacity: 0.55 }, { height: `${endHeight}px`, opacity: 1 }], {
-          duration: 180,
+      if (!prefersReducedMotion() && Math.abs(endHeight - startHeight) > 1) {
+        panel.style.height = `${startHeight}px`;
+        panel.animate([{ height: `${startHeight}px` }, { height: `${endHeight}px` }], {
+          duration: 160,
           easing: "cubic-bezier(.2,.8,.2,1)"
         });
+        panel.style.height = `${endHeight}px`;
+        window.setTimeout(() => {
+          if (panel.isConnected) panel.style.height = "";
+        }, 170);
       }
-      panel.style.height = `${endHeight}px`;
-      window.setTimeout(() => {
-        panel.style.height = "";
-      }, 190);
     }
     function updateMotionFieldFill(input) {
       const field = input.dataset.animationField || "";
@@ -41628,7 +42395,8 @@
       const center = controlRect.top + controlRect.height / 2;
       const travel = toolbarTooltipLastCenter === null ? 0 : Math.sign(center - toolbarTooltipLastCenter) * 10;
       const wasVisible = tooltip.classList.contains("visible");
-      const multiline = displayForMeasure.length > 28;
+      const side = control.dataset.tooltipSide;
+      const multiline = control.hasAttribute("data-tooltip-wrap") || displayForMeasure.length > 28;
       toolbarTooltipActive?.removeAttribute("aria-describedby");
       toolbarTooltipActive = control;
       toolbarTooltipPending = null;
@@ -41636,21 +42404,44 @@
       toolbarTooltipLastCenter = center;
       control.setAttribute("aria-describedby", "feedback-mark-toolbar-tooltip");
       sizer.textContent = displayForMeasure;
+      copy.classList.toggle("has-shortcut", !!shortcut);
+      const wrapTip = control.hasAttribute("data-tooltip-wrap");
+      if (wrapTip) {
+        sizer.style.whiteSpace = "normal";
+        sizer.style.maxWidth = "188px";
+      } else {
+        sizer.style.whiteSpace = "";
+        sizer.style.maxWidth = "";
+      }
       if (shortcut) {
         copy.innerHTML = `<span>${escapeHtml(label)}</span><span class="toolbar-tooltip-shortcut">${escapeHtml(shortcut)}</span>`;
       } else {
         copy.textContent = label;
       }
       tooltip.classList.toggle("multiline", multiline);
+      const measuredCompactWidth = Math.min(
+        220,
+        Math.max(28, Math.ceil(sizer.getBoundingClientRect().width) + (shortcut ? 4 : 0))
+      );
       let width;
       let left;
       let top;
       if (isRail) {
-        width = Math.min(220, Math.ceil(sizer.getBoundingClientRect().width));
+        width = wrapTip ? Math.min(200, Math.ceil(sizer.getBoundingClientRect().width)) : measuredCompactWidth;
         left = Math.max(8, controlRect.left - width - 12);
         top = Math.max(8, Math.min(innerHeight - 28 - 8, center - 14));
+        tooltip.style.transformOrigin = "";
+      } else if (side === "right") {
+        width = wrapTip ? Math.min(200, Math.ceil(sizer.getBoundingClientRect().width)) : multiline ? 200 : measuredCompactWidth;
+        const estimatedHeight = multiline ? 56 : 28;
+        left = controlRect.right + 8;
+        top = center - estimatedHeight / 2;
+        left = Math.max(8, Math.min(innerWidth - width - 8, left));
+        top = Math.max(8, Math.min(innerHeight - estimatedHeight - 8, top));
+        tooltip.style.transformOrigin = "0% 50%";
       } else {
-        width = multiline ? 200 : Math.min(220, Math.max(28, Math.ceil(displayForMeasure.length * 7.2) + 20));
+        width = multiline ? 200 : measuredCompactWidth;
+        tooltip.style.transformOrigin = "";
         left = Math.max(8, Math.min(innerWidth - width - 8, controlRect.left + controlRect.width / 2 - width / 2));
         const estimatedHeight = multiline ? 56 : 28;
         const above = controlRect.top - estimatedHeight - 8 >= 8;
@@ -41747,26 +42538,33 @@
       toolbarTooltipCoolTimer = clearToolbarTooltipTimer(toolbarTooltipCoolTimer);
       toolbarTooltipOpenTimer = clearToolbarTooltipTimer(toolbarTooltipOpenTimer);
       toolbarTooltipPending = control;
-      if (immediate) {
+      const requestedDelay = Number.parseInt(control.dataset.tooltipDelay || "", 10);
+      const delay = Number.isFinite(requestedDelay) ? Math.max(0, requestedDelay) : immediate ? 0 : 120;
+      if (delay === 0) {
         showAnnoteTooltip(control);
         return;
       }
       toolbarTooltipOpenTimer = window.setTimeout(() => {
         toolbarTooltipOpenTimer = null;
         if (toolbarTooltipPending === control) showAnnoteTooltip(control);
-      }, 120);
+      }, delay);
     }
     function closeAnnoteTooltip(control, immediate = false) {
+      const wasPending = toolbarTooltipPending === control;
+      if (toolbarTooltipPending === control) {
+        toolbarTooltipOpenTimer = clearToolbarTooltipTimer(toolbarTooltipOpenTimer);
+        toolbarTooltipPending = null;
+      }
+      if (toolbarTooltipActive !== control) {
+        const orphanedActive = wasPending ? toolbarTooltipActive : null;
+        if (orphanedActive) closeAnnoteTooltip(orphanedActive, immediate);
+        return;
+      }
       const isRail = !!control.closest(".toolbar, .launcher-wrap");
       if (isRail) {
         closeToolbarTooltip(control, immediate);
         return;
       }
-      if (toolbarTooltipPending === control) {
-        toolbarTooltipOpenTimer = clearToolbarTooltipTimer(toolbarTooltipOpenTimer);
-        toolbarTooltipPending = null;
-      }
-      if (toolbarTooltipActive !== control) return;
       toolbarTooltipCloseTimer = clearToolbarTooltipTimer(toolbarTooltipCloseTimer);
       const close = () => {
         toolbarTooltipCloseTimer = null;
@@ -41789,7 +42587,9 @@
       root.querySelectorAll("[data-tooltip]").forEach((control) => {
         control.addEventListener("pointerenter", () => openAnnoteTooltip(control));
         control.addEventListener("pointerleave", () => closeAnnoteTooltip(control));
-        control.addEventListener("focus", () => openAnnoteTooltip(control, true));
+        control.addEventListener("focus", () => {
+          if (!control.hasAttribute("data-tooltip-hover-only")) openAnnoteTooltip(control, true);
+        });
         control.addEventListener("blur", () => closeAnnoteTooltip(control, true));
         control.addEventListener("pointerdown", () => resetAnnoteTooltip(true));
       });
@@ -41814,7 +42614,6 @@
       resetToolbarTooltipGroup(true);
       const composerTarget = state.selectedElement;
       const composerPosition = composerTarget ? state.composerPosition || composerPositionFor(composerTarget) : null;
-      const hideComposerForShiftSelect = state.shiftSelecting && state.selectedElements.length > 0;
       const editingAnnotation = state.editingId ? state.annotations.find((annotation) => annotation.id === state.editingId) : null;
       const collapsed = !state.toolbarOpen && !state.visible && !composerTarget;
       const pendingCount = state.annotations.filter((annotation) => !["resolved", "dismissed"].includes(annotation.status || "pending")).length;
@@ -41841,7 +42640,7 @@
       const copyClass = state.copyState === "copied" ? "success" : "";
       state.shadow.innerHTML = `
       <style>${styles()}</style>
-      <div class="fm-layer ${state.active ? "active" : ""}">
+      <div class="fm-layer ${state.active ? "active" : ""}" data-theme="${state.resolvedTheme}">
         ${collapsed ? `<div class="launcher-wrap ${state.toolbarDrag ? "dragging" : ""}" data-toolbar-rail data-action="open-toolbar" role="button" tabindex="0" aria-label="${launcherLabel}" data-tooltip="${launcherLabel}" style="${railStyle}"><span class="icon-btn launcher" aria-hidden="true">${icon("note")}</span>${pendingCount ? `<span class="launcher-badge" aria-hidden="true">${pendingCount}</span>` : ""}</div>` : `<div class="toolbar ${state.toolbarOpening ? "opening" : ""} ${state.toolbarClosing ? "closing" : ""} ${state.toolbarTooltipsReady ? "tooltips-ready" : ""}" style="${railStyle}">
                 <div class="toolbar-controls">
                   ${iconButton("toggle-pick", state.active ? "Stop picking" : "Pick element", "target", "pick-toggle")}
@@ -41863,7 +42662,7 @@
         <div class="selection-outlines" data-selection-outlines></div>
         <div class="label hidden" data-hover-label></div>
         ${collapsed ? "" : markers}
-        ${composerTarget && composerPosition && !hideComposerForShiftSelect ? renderComposer(composerTarget, composerPosition, editingAnnotation || null) : ""}
+        ${composerTarget && composerPosition ? renderComposer(composerTarget, composerPosition, editingAnnotation || null) : ""}
         <section class="panel ${state.visible ? "" : "hidden"}" style="${railStyle}" aria-label="${state.panelMode === "settings" ? "Settings panel" : "Annotation review panel"}">
           ${renderPanelContent()}
         </section>
@@ -41954,6 +42753,11 @@
     function onShadowRootClick(event) {
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest(".font-control, .token-menu-anchor, .autocomplete")) return;
+      if (state.intentMenuOpen && target?.isConnected && !target.closest("[data-intent-wrap]")) {
+        state.intentMenuOpen = false;
+        render();
+        return;
+      }
       if (!state.openFontMenu && !state.openTokenMenu && !state.autocomplete) return;
       state.openFontMenu = null;
       state.openTokenMenu = null;
@@ -41996,6 +42800,16 @@
         });
       }
       bindToolbarTooltipGroup(root);
+      root.querySelectorAll(".theme-segment:not([data-annote-theme-bound])").forEach((option, index, options) => {
+        option.dataset.annoteThemeBound = "true";
+        option.addEventListener("keydown", (event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + options.length) % options.length;
+          options[nextIndex]?.click();
+          options[nextIndex]?.focus();
+        });
+      });
       if (!state.shadowClickBound) {
         root.addEventListener("click", onShadowRootClick);
         root.addEventListener("focusin", (event) => {
@@ -42068,6 +42882,17 @@
               row?.querySelector('[role="switch"]')?.setAttribute("aria-checked", checked);
             }
           }
+          if (action === "set-theme" && control.dataset.themePreference) {
+            const preference = control.dataset.themePreference;
+            if (preference === "light" || preference === "opposite-page" || preference === "dark") {
+              updateSetting2("theme", preference, false);
+              root.querySelectorAll("[data-theme-preference]").forEach((option) => {
+                const selected = option.dataset.themePreference === preference;
+                option.classList.toggle("selected", selected);
+                option.setAttribute("aria-checked", String(selected));
+              });
+            }
+          }
           if (action === "settings-view" && control.dataset.settingsView) {
             const view = control.dataset.settingsView;
             if (view === "root" || view === "mcp" || view === "help") {
@@ -42101,6 +42926,7 @@
             void state.mcpClient?.revoke();
           }
           if (action === "toggle-css") {
+            state.intentMenuOpen = false;
             const nextOpen = !state.cssOpen;
             state.styleEditorOpening = nextOpen;
             state.styleEditorClosing = !nextOpen;
@@ -42145,6 +42971,15 @@
           }
           if (action === "dictation-cancel") cancelDictationAttempt();
           if (action === "dictation-stop") stopDictationInput();
+          if (action === "open-coloris") {
+            const input = control.closest(".color-control")?.querySelector("[data-coloris-input]");
+            if (input) {
+              void prepareColoris(input).then(() => {
+                input.focus();
+                input.click();
+              });
+            }
+          }
           if (action === "cancel-compose") {
             requestCancelComposer();
           }
@@ -42159,7 +42994,7 @@
           if (action === "set-selection-scope" && control.dataset.scope && state.selectedElements.length > 1 && state.selectedElement) {
             if (blockDirtyComposerSwitch()) return;
             const previousComment = state.draft?.comment || "";
-            const previousIntent = state.draft?.intent || "fix";
+            const previousIntent = normalizeAnnotationIntent(state.draft?.intent);
             state.selectionScope = control.dataset.scope === "parent" ? "parent" : "individual";
             startDraft(state.selectedElement);
             if (state.draft) {
@@ -42197,7 +43032,10 @@
                   { gridTemplateRows: "1fr", opacity: 1, marginTop: "6px" },
                   { gridTemplateRows: "0fr", opacity: 0, marginTop: "0" }
                 ],
-                { duration: 180, easing: "cubic-bezier(.2,.8,.2,1)" }
+                // fill:forwards holds the collapsed end state until render()
+                // swaps the class — without it the body snaps back open (and the
+                // CSS transition replays) in the gap before the timeout fires.
+                { duration: 180, easing: "cubic-bezier(.2,.8,.2,1)", fill: "forwards" }
               );
               window.setTimeout(() => {
                 state.structureAnimating = false;
@@ -42208,14 +43046,6 @@
               state.structureOpen = false;
               render();
             }
-          }
-          if (action === "toggle-structure-children") {
-            state.structureChildrenExpanded = !state.structureChildrenExpanded;
-            render();
-          }
-          if (action === "toggle-structure-siblings") {
-            state.structureSiblingsExpanded = !state.structureSiblingsExpanded;
-            render();
           }
           if (control.dataset.structureTarget) {
             if (blockDirtyComposerSwitch()) return;
@@ -42230,6 +43060,17 @@
           }
           if (action === "undo-edit") {
             if (!dictationActive()) undoDraftEdit();
+          }
+          if (action === "toggle-intent-menu") {
+            setIntentMenuOpen(!state.intentMenuOpen);
+            if (state.intentMenuOpen) {
+              state.shadow?.querySelector('[data-intent-option][aria-checked="true"]')?.focus();
+            } else {
+              state.shadow?.querySelector("[data-intent-toggle]")?.focus();
+            }
+          }
+          if (action === "set-intent" && control.dataset.intent) {
+            chooseIntent(control.dataset.intent);
           }
           if (action === "select-animation" && state.draft && control.dataset.animationId) {
             state.draft.selectedAnimationId = control.dataset.animationId;
@@ -42476,6 +43317,28 @@
       root.querySelector("[data-motion-scrubber]")?.addEventListener("pointerup", endMotionScrub);
       root.querySelector("[data-motion-scrubber]")?.addEventListener("pointercancel", endMotionScrub);
       root.querySelector("[data-motion-scrubber]")?.addEventListener("keydown", scrubberKeyStep);
+      root.querySelector("[data-intent-menu]")?.addEventListener("keydown", (event) => {
+        const items = Array.from(root.querySelectorAll("[data-intent-option]"));
+        if (!items.length) return;
+        const active = root.activeElement;
+        const index = active ? Math.max(0, items.indexOf(active)) : 0;
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const next = event.key === "ArrowDown" ? Math.min(items.length - 1, index + 1) : Math.max(0, index - 1);
+          items[next]?.focus();
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          items[0]?.focus();
+        } else if (event.key === "End") {
+          event.preventDefault();
+          items[items.length - 1]?.focus();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setIntentMenuOpen(false);
+          root.querySelector("[data-intent-toggle]")?.focus();
+        }
+      });
       root.querySelector("[data-confirm-scrim]")?.addEventListener("wheel", (event) => event.preventDefault(), { passive: false });
       root.querySelector("[data-confirm-scrim]")?.addEventListener("touchmove", (event) => event.preventDefault(), { passive: false });
       root.querySelectorAll("[data-motion-graph-handle]").forEach((handle) => {
@@ -42488,8 +43351,8 @@
       if (comment) {
         comment.addEventListener("input", () => {
           if (state.draft) state.draft.comment = comment.value;
-          autogrowComposerTextarea(comment);
           syncComposerSubmitState();
+          autogrowComposerTextarea(comment);
         });
         comment.addEventListener("keydown", (event) => {
           if (event.key === "Enter" && !event.shiftKey) {
@@ -42581,7 +43444,9 @@
       });
       bindMotionInputs(root);
       root.querySelectorAll("[data-coloris-input]").forEach((input) => {
-        const activateColoris = () => prepareColoris(input);
+        const activateColoris = () => {
+          void prepareColoris(input);
+        };
         input.addEventListener("pointerdown", activateColoris);
         input.addEventListener("focus", activateColoris);
         input.addEventListener("input", () => {
@@ -42591,7 +43456,7 @@
           state.openTokenMenu = null;
           const swatch = input.closest(".color-control")?.querySelector("[data-color-swatch]");
           if (swatch) {
-            swatch.style.background = typeof CSS !== "undefined" && CSS.supports("color", value) ? value : "";
+            swatch.style.setProperty("--fm-swatch-color", typeof CSS !== "undefined" && CSS.supports("color", value) ? value : "transparent");
           }
           const invalid = cssValueStatus(property2, value) === "invalid";
           input.closest(".css-row")?.classList.toggle("invalid", invalid);
@@ -42748,11 +43613,10 @@
       } else {
         state.selectedElements.push(element);
       }
-      state.selectedElement = null;
       updateSelectionOverlay();
     }
-    function updateSelectionOnly() {
-      render();
+    function updateShiftSelectionPreview() {
+      state.shadow?.querySelector("[data-composer]")?.classList.toggle("shift-selecting", state.shiftSelecting);
       updateSelectionOverlay();
       updateHoverOverlay();
       requestAnimationFrame(updateSelectionOverlay);
@@ -42962,6 +43826,7 @@
       state.cssOpen = keepCssOpen;
       state.styleEditorOpening = false;
       state.styleEditorClosing = false;
+      state.composerMultiline = false;
       state.visible = false;
       state.toolbarOpen = true;
       state.active = true;
@@ -43131,7 +43996,6 @@
     }
     function onPointerMove(event) {
       if (!state.active) return;
-      if (state.shiftSelecting && !event.shiftKey) resetShiftSelectionState();
       if (isControlUiEventTarget(event.target)) {
         if (state.hoverElement) {
           state.hoverElement = null;
@@ -43143,9 +44007,12 @@
         }
         return;
       }
-      if (state.selectedElement) return;
       const element = underlyingElementFromPoint(event.clientX, event.clientY);
       const next = element ? choosePickTarget(element) : null;
+      if (state.selectedElement && !state.shiftSelecting) {
+        state.hoverElement = next;
+        return;
+      }
       const hoveredAnnotation = hoveredAnnotationForElement(next);
       if (state.hoveredMarkerId !== hoveredAnnotation?.id) {
         state.hoveredMarkerId = hoveredAnnotation?.id || null;
@@ -43181,6 +44048,7 @@
       }
       state.selectedElement = target;
       state.selectedElements = selectedElements;
+      if (state.active) setAnnotatingCursor(true);
       state.selectionScope = selectedElements.length > 1 ? state.selectionScope : "individual";
       state.composerAnchor = anchor;
       state.composerPosition = composerPositionFor(state.selectedElement);
@@ -43188,6 +44056,7 @@
       state.cssOpen = keepCssOpen;
       state.styleEditorOpening = false;
       state.styleEditorClosing = false;
+      state.composerMultiline = false;
       startDraft(state.selectedElement);
       pauseAnimationsForSelection(state.selectedElement);
       state.focusComposerOnRender = true;
@@ -43201,15 +44070,19 @@
       const anchor = { x: event.clientX, y: event.clientY };
       if (event.shiftKey) {
         preventUnderlyingAction(event);
+        if (state.selectedElement && draftIsDirty()) {
+          shakeComposer();
+          return;
+        }
         state.shiftSelecting = true;
         setAnnotatingCursor(true);
         if (state.selectedElement && !state.selectedElements.includes(state.selectedElement)) {
           state.selectedElements = [state.selectedElement, ...state.selectedElements];
         }
-        closeComposerPreservingSelection();
         toggleSelectionElement(target);
+        state.hoverElement = target;
         state.composerAnchor = anchor;
-        updateSelectionOnly();
+        updateShiftSelectionPreview();
         return;
       }
       preventUnderlyingAction(event);
@@ -43274,14 +44147,13 @@
         return;
       }
       if (event.key === "Shift" && state.active && !state.shiftSelecting) {
+        if (state.selectedElement && draftIsDirty()) return;
         if (state.selectedElement && !state.selectedElements.includes(state.selectedElement)) {
           state.selectedElements = [state.selectedElement, ...state.selectedElements];
         }
         state.shiftSelecting = true;
         setAnnotatingCursor(true);
-        closeComposerPreservingSelection();
-        state.hoverElement = null;
-        updateSelectionOnly();
+        updateShiftSelectionPreview();
         return;
       }
       if (state.confirm) {
@@ -43330,6 +44202,14 @@
         }
       }
       if (event.key === "Escape") {
+        if (state.intentMenuOpen) {
+          event.preventDefault();
+          event.stopPropagation();
+          state.intentMenuOpen = false;
+          render();
+          state.shadow?.querySelector("[data-intent-toggle]")?.focus();
+          return;
+        }
         if (state.selectedElements.length) {
           restorePreview();
           clearComposerState();
@@ -43353,6 +44233,21 @@
       if (state.selectedElements.length > 1) {
         openMultiSelectionComposer(state.composerAnchor || { x: innerWidth / 2, y: innerHeight / 2 });
         return;
+      }
+      if (state.selectedElements.length === 1) {
+        const selected = state.selectedElements[0];
+        if (state.selectedElement === selected) {
+          state.selectedElements = [];
+          state.focusComposerOnRender = true;
+          updateSelectionOverlay();
+          render();
+        } else {
+          openComposerForElement(selected, state.composerAnchor || { x: innerWidth / 2, y: innerHeight / 2 });
+        }
+        return;
+      }
+      if (state.selectedElement) {
+        closeComposerPreservingSelection();
       }
       render();
     }
@@ -43421,6 +44316,7 @@
         });
         observeTargets();
         scheduleRender();
+        if (state.settings.theme === "opposite-page" && state.observedThemeBody !== document.body) schedulePageThemeCheck();
       });
       state.mutationObserver.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
     }
@@ -43478,6 +44374,8 @@
       });
       state.annotations.forEach(applyCommittedMutation);
       state.mounted = true;
+      applyResolvedTheme(resolveTheme(state.settings.theme, detectPageTheme()));
+      syncPageThemeObservation(false);
       state.visible = false;
       attachGlobalListeners();
       observeTargets();
@@ -43602,6 +44500,9 @@
       state.confirmInvoker = null;
       state.confirmResumePick = false;
       state.structureAnimating = false;
+      disconnectPageThemeObserver();
+      if (state.themeTransitionTimer !== null) window.clearTimeout(state.themeTransitionTimer);
+      state.themeTransitionTimer = null;
       if (state.noticeTimer !== null) {
         window.clearTimeout(state.noticeTimer);
         state.noticeTimer = null;

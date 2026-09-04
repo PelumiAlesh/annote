@@ -15,6 +15,7 @@ import { ANNOTE_VERSION } from "/tmp/feedback-mark-version.mjs";
 function data(overrides = {}) {
   return {
     settings: {
+      theme: "opposite-page",
       pauseAnimationOnSelect: false,
       clearAfterSend: false,
       preventPageActions: true,
@@ -47,6 +48,19 @@ test("toggle rows are valid, clickable, and reflect state", () => {
   assert.ok(html.includes('aria-checked="true"'), "checked state missing");
   const off = renderSettingsRoot(data({ settings: { pauseAnimationOnSelect: false, clearAfterSend: false, preventPageActions: false, reactContext: false } }));
   assert.ok(off.includes('aria-checked="false"'), "unchecked state missing");
+});
+
+test("theme is an accessible icon-only three-option control", () => {
+  const html = renderSettingsRoot(data());
+  assert.equal((html.match(/data-theme-preference=/g) || []).length, 3);
+  assert.ok(html.includes('role="radiogroup" aria-label="Theme"'));
+  for (const [value, label] of [["light", "Light"], ["opposite-page", "Opposite page"], ["dark", "Dark"]]) {
+    assert.ok(html.includes(`data-theme-preference="${value}"`));
+    assert.ok(html.includes(`aria-label="${label} theme"`));
+    assert.ok(html.includes(`data-tooltip="${label}"`));
+  }
+  assert.ok(html.includes('data-theme-preference="opposite-page"') && html.includes('aria-checked="true"'));
+  assert.ok(!html.includes(">Light</button>") && !html.includes(">Dark</button>"));
 });
 
 test("nav rows expose status without nested buttons", () => {

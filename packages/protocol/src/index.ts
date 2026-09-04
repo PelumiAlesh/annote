@@ -4,6 +4,42 @@ export const ANNOTE_HEALTH_NAME = "annote";
 export type AnnoteAnnotationStatus = "pending" | "acknowledged" | "resolved" | "dismissed" | "detached";
 export type AnnoteThreadRole = "human" | "agent";
 
+/** What the user expects the coding agent to do with an annotation. */
+export type AnnoteIntent = "fix" | "ask" | "note";
+
+export const ANNOTE_INTENTS: readonly AnnoteIntent[] = ["fix", "ask", "note"];
+
+/**
+ * Normalize any persisted/provided intent to the V1 vocabulary.
+ * Legacy "change" means fix, legacy "question" means ask; anything missing
+ * or unknown falls back to "fix" (Annote's primary point-and-change workflow).
+ */
+export function normalizeAnnotationIntent(value: unknown): AnnoteIntent {
+  if (value === "fix" || value === "change") return "fix";
+  if (value === "ask" || value === "question") return "ask";
+  if (value === "note") return "note";
+  return "fix";
+}
+
+export const ANNOTE_INTENT_LABELS: Record<AnnoteIntent, string> = {
+  fix: "Fix",
+  ask: "Ask",
+  note: "Note",
+};
+
+export const ANNOTE_INTENT_TOOLTIPS: Record<AnnoteIntent, string> = {
+  fix: "Request a change to this UI.",
+  ask: "Ask the agent about this UI without requesting a change.",
+  note: "Leave context or feedback without requesting a change.",
+};
+
+/** Agent-facing behavioral contract per intent (surfaced in MCP tool docs). */
+export const ANNOTE_INTENT_AGENT_GUIDANCE: Record<AnnoteIntent, string> = {
+  fix: "intent=fix is a requested implementation change: claim it, inspect context, implement, reply if useful, resolve when complete.",
+  ask: "intent=ask is a question about the UI/code: inspect context and answer. Do not modify code merely because the annotation exists; only change code if the user subsequently explicitly requests it.",
+  note: "intent=note is contextual information: do not interpret it as a change request and do not implement solely because it exists; reply/acknowledge where useful.",
+};
+
 export type AnnoteThreadMessageDTO = {
   id: string;
   role: AnnoteThreadRole;
@@ -60,7 +96,7 @@ export type AnnoteAnnotationDTO = {
   id: string;
   status: AnnoteAnnotationStatus;
   feedback: string;
-  intent?: string;
+  intent: AnnoteIntent;
   thread: AnnoteThreadMessageDTO[];
   target: AnnoteElementSnapshotDTO;
   targets?: AnnoteElementSnapshotDTO[];
@@ -113,6 +149,7 @@ export type AnnoteCompactAnnotationDTO = {
   id: string;
   status: AnnoteAnnotationStatus;
   comment: string;
+  intent: AnnoteIntent;
   element: string;
   component?: string;
   sourceFile?: string;
@@ -374,7 +411,7 @@ export function annotationToDTO(value: unknown): AnnoteAnnotationDTO | null {
     id,
     status: raw.status === "acknowledged" || raw.status === "resolved" || raw.status === "dismissed" || raw.status === "detached" ? raw.status : "pending",
     feedback,
-    intent: cleanString(raw.intent, 80),
+    intent: normalizeAnnotationIntent(raw.intent),
     thread: threadFrom(raw.thread, feedback, createdAt),
     target: targetFrom(raw),
     targets: targetsFrom(raw),
@@ -409,6 +446,7 @@ export function compactAnnotation(session: AnnoteSessionDTO, annotation: AnnoteA
     id: annotation.id,
     status: annotation.status,
     comment: annotation.feedback.length > 180 ? `${annotation.feedback.slice(0, 177)}...` : annotation.feedback,
+    intent: annotation.intent,
     element: annotation.target.element,
     component: annotation.react?.component,
     sourceFile: annotation.source?.fileName,

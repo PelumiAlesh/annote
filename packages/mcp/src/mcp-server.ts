@@ -28,7 +28,7 @@ export async function ensureBridge(config: AnnoteConfig, port = DEFAULT_BRIDGE_P
 }
 
 export async function createMcpServer(config: AnnoteConfig, port = DEFAULT_BRIDGE_PORT): Promise<McpServer> {
-  const server = new McpServer({ name: "annote-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "annote", version: "0.1.0", title: "Annote" });
   registerAnnoteTools(server, new BridgeClient(config, port));
   return server;
 }

@@ -118,6 +118,7 @@ Activate Annote and point at an element.
 You can:
 
 * leave implementation notes
+* mark feedback as a Fix, Ask or Note
 * dictate feedback with your voice
 * inspect and edit CSS
 * edit animation timing and easing
@@ -148,20 +149,26 @@ For development projects, installing Annote through npm is the recommended and m
 
 ## MCP tools
 
-Annote exposes:
+Annote exposes (programmatic names are stable; clients that support
+display titles show the human-readable title instead):
 
-| Tool                       | Purpose                                 |
-| -------------------------- | --------------------------------------- |
-| `annote_list_sessions`     | List connected Annote browser sessions  |
-| `annote_list`              | List current annotations                |
-| `annote_get`               | Get complete context for one annotation |
-| `annote_get_pending`       | Get pending feedback for a session      |
-| `annote_get_all_pending`   | Get pending feedback across sessions    |
-| `annote_watch_annotations` | Wait for new feedback                   |
-| `annote_claim`             | Claim feedback before implementing it   |
-| `annote_reply`             | Reply to an annotation                  |
-| `annote_resolve`           | Mark implemented feedback resolved      |
-| `annote_dismiss`           | Intentionally dismiss feedback          |
+| Tool                       | Display title            | Purpose                                 |
+| -------------------------- | ------------------------ | --------------------------------------- |
+| `annote_list_sessions`     | List Annote sessions     | List connected Annote browser sessions  |
+| `annote_list`              | List annotations         | List current annotations                |
+| `annote_get`               | Get annotation details   | Get complete context for one annotation |
+| `annote_get_pending`       | Get pending feedback     | Get pending feedback for a session      |
+| `annote_get_all_pending`   | Get all pending feedback | Get pending feedback across sessions    |
+| `annote_watch_annotations` | Watch for Annote feedback | Wait for new feedback                  |
+| `annote_claim`             | Claim feedback           | Claim feedback before implementing it   |
+| `annote_reply`             | Reply to feedback        | Reply to an annotation                  |
+| `annote_resolve`           | Resolve feedback         | Mark implemented feedback resolved      |
+| `annote_dismiss`           | Dismiss feedback         | Intentionally dismiss feedback          |
+
+Each annotation carries an `intent`: `fix` (implement the change),
+`ask` (answer the question; do not modify code merely because the
+annotation exists), or `note` (context only; do not implement solely
+because it exists).
 
 ## Browser API
 

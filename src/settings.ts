@@ -1,4 +1,7 @@
+import { normalizeThemePreference, type ThemePreference } from "./theme";
+
 export type AnnoteSettings = {
+  theme: ThemePreference;
   pauseAnimationOnSelect: boolean;
   clearAfterSend: boolean;
   preventPageActions: boolean;
@@ -12,6 +15,7 @@ export const SETTINGS_STORAGE_KEY = "annote:settings:v1";
 export const LEGACY_SETTINGS_STORAGE_KEY = "feedback-mark:settings:v1";
 
 export const DEFAULT_SETTINGS: AnnoteSettings = {
+  theme: "opposite-page",
   pauseAnimationOnSelect: true,
   clearAfterSend: false,
   preventPageActions: true,
@@ -29,6 +33,7 @@ export function normalizeSettings(value: unknown): AnnoteSettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { ...DEFAULT_SETTINGS };
   const raw = value as Partial<Record<keyof AnnoteSettings, unknown>>;
   return {
+    theme: normalizeThemePreference(raw.theme),
     pauseAnimationOnSelect: isBoolean(raw.pauseAnimationOnSelect)
       ? raw.pauseAnimationOnSelect
       : DEFAULT_SETTINGS.pauseAnimationOnSelect,

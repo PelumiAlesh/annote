@@ -85,6 +85,16 @@ button { cursor: pointer; }
   letter-spacing: -0.02em;
 }
 .wordmark.small { font-size: 13px; }
+.wordmark-version {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+  line-height: 1.6;
+}
 .mark {
   width: 11px;
   height: 11px;
@@ -101,6 +111,8 @@ button { cursor: pointer; }
   font-size: 12px;
 }
 .nav a:hover, .footer-links a:hover { color: var(--ink); }
+.nav a.icon-link { display: inline-flex; align-items: center; }
+.nav a.icon-link svg { width: 16px; height: 16px; display: block; fill: currentColor; }
 
 .hero {
   padding: 112px 0 84px;

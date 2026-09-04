@@ -44,7 +44,11 @@ This boundary prevents flicker. A transient interaction must not replace the too
 | Toolbar collapsed | Only the launcher is visible. This is the default state. |
 | Toolbar expanded | Toolbar remains expanded until Collapse or Close is invoked. |
 | Picker active | Page cursor communicates annotation mode; hover outline follows eligible elements. |
+| Shift multi-select | A pristine composer yields to selection immediately on Shift-down without replacing its focused DOM node. Its last page-pointer target becomes a blue hover outline immediately, the cursor switches to blue from keyboard state, and both continue tracking during selection. Releasing Shift restores the composer or opens the multi-element composer; clearing the selection or returning to one target restores orange. |
+| Dirty composer + Shift | Shift does not enter multi-select or dismiss the composer once comment or style changes exist. |
 | Composer open | Picking is locked to the selected element. Outside clicks shake the existing composer. |
+| Composer layout change | Opening or closing the style editor first closes the intent menu, so no fixed-position menu survives a composer geometry transition. |
+| Four-sided style fields | Padding, margin, border width, and border radius remain four-field controls. Hovering or focusing an input identifies its side; radius inputs identify their corner. |
 | Review open | Picker and composer are closed. Review button has the active orange state. |
 | Import open | Review is open and stable; only the importer section enters or leaves. |
 | Existing marker clicked | Composer opens in edit mode for that annotation. A second annotation is not created. |
@@ -194,6 +198,7 @@ Close, Save, and Delete share the same 150ms exit animation. Data mutation and t
 - A new mode transition cancels pending tooltip timers.
 - Closing a composer already marked `exiting` is ignored.
 - A pending toolbar open must not re-enable tooltips after collapse begins.
+- Leaving a delayed tooltip target before it opens must also dismiss any previous tooltip whose close was canceled by that handoff.
 - Scroll, resize, and mutation callbacks coalesce through one `requestAnimationFrame`.
 - Repeated outside clicks restart only the shake keyframe on the same composer node.
 - Focus and typed content must survive every transient animation.

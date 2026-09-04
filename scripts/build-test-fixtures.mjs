@@ -21,6 +21,7 @@ esbuild("src/animation-format.ts", "/tmp/feedback-mark-animation-format.mjs", { 
 esbuild("src/react-adapter.ts", "/tmp/feedback-mark-react-adapter.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/ui-label.ts", "/tmp/feedback-mark-ui-label.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/settings.ts", "/tmp/feedback-mark-settings.mjs", { platform: "browser", target: "es2020" });
+esbuild("src/theme.ts", "/tmp/feedback-mark-theme.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/background-helpers.ts", "/tmp/feedback-mark-background-helpers.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/structure-helpers.ts", "/tmp/feedback-mark-structure-helpers.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/html-escape.ts", "/tmp/feedback-mark-html-escape.mjs", { platform: "browser", target: "es2020" });

@@ -2,6 +2,7 @@ import type { AnnoteMcpState } from "./annote-mcp-client";
 import { escapeHtml } from "./html-escape";
 import type { FeedbackMarkSettings } from "./settings";
 import { ANNOTE_VERSION } from "./version";
+import type { ThemePreference } from "./theme";
 
 export type SettingsView = "root" | "mcp" | "help";
 export type McpConnectionStatus = AnnoteMcpState;
@@ -52,6 +53,14 @@ export function renderSettingsRoot(data: SettingsViewData): string {
       </div>
       <div class="settings-list">
         <section class="settings-section" aria-label="Behavior">
+          <div class="settings-row theme-settings-row">
+            <span class="settings-row-label"><strong>Theme</strong></span>
+            <div class="theme-segments" role="radiogroup" aria-label="Theme">
+              ${renderThemeOption("light", "Light", "sun", data.settings.theme)}
+              ${renderThemeOption("opposite-page", "Opposite page", "contrast", data.settings.theme)}
+              ${renderThemeOption("dark", "Dark", "moon", data.settings.theme)}
+            </div>
+          </div>
           ${renderSettingsToggle(data, "pauseAnimationOnSelect", "Pause animation on select", "Pause active motion when you select it.")}
           ${renderSettingsToggle(data, "clearAfterSend", "Clear after send", "Remove submitted annotations after sending.")}
           ${renderSettingsToggle(data, "preventPageActions", "Prevent page interactions while annotating", "Prevent clicks and hover interactions while selecting elements.")}
@@ -78,6 +87,20 @@ export function renderSettingsRoot(data: SettingsViewData): string {
       </div>
       ${data.noticeHtml}
     `;
+}
+
+function renderThemeOption(value: ThemePreference, label: string, iconName: string, selected: ThemePreference): string {
+  const checked = selected === value;
+  return `<button class="theme-segment${checked ? " selected" : ""}" type="button" role="radio" aria-checked="${checked}" aria-label="${label} theme" data-tooltip="${label}" data-action="set-theme" data-theme-preference="${value}">${themeIcon(iconName)}</button>`;
+}
+
+function themeIcon(name: string): string {
+  const path = name === "sun"
+    ? '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/>'
+    : name === "moon"
+      ? '<path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"/>'
+      : '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16Z" fill="currentColor" stroke="none"/>';
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
 }
 
 export function renderSettingsHeader(title: string): string {

@@ -55,6 +55,7 @@ test("summaries and compact annotations avoid full annotation payloads", () => {
     id: "ann_1",
     status: "pending",
     comment: "Fix spacing",
+    intent: "fix",
     element: "Card",
     component: undefined,
     sourceFile: undefined,

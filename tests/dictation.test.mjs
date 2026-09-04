@@ -43,19 +43,20 @@ test("collapsed transcribing: X + transcribing, save locked", () => {
   });
 });
 
-test("expanded new idle: cancel/undo left, mic/add right, top input only", () => {
+test("expanded new idle: mic stays with input, cancel/undo left, add right", () => {
   assert.deepEqual(composerControls({ ...base, expanded: true }), {
-    top: ["input"],
+    top: ["input", "mic"],
     footerLeft: ["cancel", "undo"],
-    footerRight: ["mic", "save"],
+    footerRight: ["save"],
     saveDisabled: false,
   });
 });
 
-test("expanded existing idle adds delete between undo and mic groups", () => {
+test("expanded existing idle adds delete while mic remains in the input", () => {
   const controls = composerControls({ ...base, expanded: true, isExisting: true });
   assert.deepEqual(controls.footerLeft, ["cancel", "undo", "delete"]);
-  assert.deepEqual(controls.footerRight, ["mic", "save"]);
+  assert.deepEqual(controls.top, ["input", "mic"]);
+  assert.deepEqual(controls.footerRight, ["save"]);
 });
 
 test("expanded listening: top owns state, footer mic gone, save locked", () => {
