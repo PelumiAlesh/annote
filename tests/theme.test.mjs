@@ -32,6 +32,16 @@ test("detection prioritizes effective body then html backgrounds", () => {
   assert.equal(detectPageTheme(doc, getStyle), "light");
 });
 
+test("explicit theme attributes win immediately over a transitioning background", () => {
+  const doc = documentFixture({ "data-theme": "dark" });
+  const staleLightBackground = () => ({ backgroundColor: "rgb(243, 241, 234)", colorScheme: "light" });
+  assert.equal(detectPageTheme(doc, staleLightBackground), "dark");
+
+  const switchedDoc = documentFixture({ "data-theme": "light" });
+  const staleDarkBackground = () => ({ backgroundColor: "rgb(17, 17, 15)", colorScheme: "dark" });
+  assert.equal(detectPageTheme(switchedDoc, staleDarkBackground), "light");
+});
+
 test("transparent roots use common theme attributes and fall back light", () => {
   const transparent = () => ({ backgroundColor: "rgba(0, 0, 0, 0)", colorScheme: "normal" });
   assert.equal(detectPageTheme(documentFixture({}, { "data-theme": "dark" }), transparent), "dark");

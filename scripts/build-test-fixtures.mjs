@@ -30,6 +30,7 @@ esbuild("src/shortcuts.ts", "/tmp/feedback-mark-shortcuts.mjs", { platform: "bro
 esbuild("src/confirm-dialog.ts", "/tmp/feedback-mark-confirm-dialog.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/dictation.ts", "/tmp/feedback-mark-dictation.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/version.ts", "/tmp/feedback-mark-version.mjs", { platform: "browser", target: "es2020" });
+esbuild("src/changelog.ts", "/tmp/feedback-mark-changelog.mjs", { platform: "browser", target: "es2020" });
 esbuild("src/settings-view.ts", "/tmp/feedback-mark-settings-view.mjs", { platform: "browser", target: "es2020" });
 
 // Node fixtures

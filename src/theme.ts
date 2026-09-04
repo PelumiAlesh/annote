@@ -13,6 +13,13 @@ export const THEME_ATTRIBUTE_FILTER = [
 
 const DARK_SIGNAL = /(?:^|[\s_-])(dark|night|black)(?:$|[\s_-])/i;
 const LIGHT_SIGNAL = /(?:^|[\s_-])(light|day)(?:$|[\s_-])/i;
+const EXPLICIT_THEME_ATTRIBUTES = [
+  "data-theme",
+  "data-mode",
+  "data-color-mode",
+  "data-color-scheme",
+  "data-bs-theme",
+] as const;
 
 function parseRgb(value: string): [number, number, number, number] | null {
   const match = value.trim().match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i);
@@ -51,11 +58,23 @@ function themeSignal(element: Element | null): ResolvedTheme | null {
   return null;
 }
 
+function explicitThemeSignal(element: Element | null): ResolvedTheme | null {
+  if (!element) return null;
+  const values = EXPLICIT_THEME_ATTRIBUTES.map((name) => element.getAttribute(name)).filter(Boolean).join(" ");
+  if (DARK_SIGNAL.test(values)) return "dark";
+  if (LIGHT_SIGNAL.test(values)) return "light";
+  return null;
+}
+
 export function detectPageTheme(
   doc: Document = document,
   getStyle: typeof getComputedStyle = getComputedStyle,
 ): ResolvedTheme {
-  return classifiedBackground(doc.body, getStyle)
+  // Explicit theme attributes change before animated backgrounds finish, so
+  // trusting them first prevents opposite-page mode from reading stale pixels.
+  return explicitThemeSignal(doc.body)
+    ?? explicitThemeSignal(doc.documentElement)
+    ?? classifiedBackground(doc.body, getStyle)
     ?? classifiedBackground(doc.documentElement, getStyle)
     ?? themeSignal(doc.body)
     ?? themeSignal(doc.documentElement)

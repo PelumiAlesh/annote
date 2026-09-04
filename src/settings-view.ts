@@ -3,8 +3,9 @@ import { escapeHtml } from "./html-escape";
 import type { FeedbackMarkSettings } from "./settings";
 import { ANNOTE_VERSION } from "./version";
 import type { ThemePreference } from "./theme";
+import { changelog, formatChangelogDate, hasUnreadChangelog } from "./changelog";
 
-export type SettingsView = "root" | "mcp" | "help";
+export type SettingsView = "root" | "mcp" | "help" | "changelog";
 export type McpConnectionStatus = AnnoteMcpState;
 
 export type SettingsViewData = {
@@ -16,6 +17,7 @@ export type SettingsViewData = {
   site: string;
   noticeHtml: string;
   shortcuts: { pick: string; copy: string; del: string };
+  lastSeenChangelogVersion: string | null;
 };
 
 export function mcpStatusLabel(status: McpConnectionStatus): string {
@@ -44,6 +46,7 @@ export function renderSettingsToggle(data: SettingsViewData, key: keyof Feedback
 }
 
 export function renderSettingsRoot(data: SettingsViewData): string {
+  const changelogUnread = hasUnreadChangelog(data.lastSeenChangelogVersion);
   return `
       <div class="panel-head">
         <div class="panel-title">
@@ -82,6 +85,12 @@ export function renderSettingsRoot(data: SettingsViewData): string {
           <div class="settings-row" role="button" tabindex="0" data-action="settings-view" data-settings-view="help" aria-label="How to use">
             <span class="settings-row-label"><strong>How to use</strong></span>
             <span class="settings-row-meta"><span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
+          </div>
+        </section>
+        <section class="settings-section" aria-label="Changelog">
+          <div class="settings-row" role="button" tabindex="0" data-action="settings-view" data-settings-view="changelog" aria-label="Changelog${changelogUnread ? ", new updates" : ""}">
+            <span class="settings-row-label"><strong>Changelog</strong></span>
+            <span class="settings-row-meta">${changelogUnread ? `<span class="settings-dot" aria-hidden="true"></span>` : ""}<span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
           </div>
         </section>
       </div>
@@ -199,9 +208,27 @@ export function renderHelpSettings(data: SettingsViewData): string {
     `;
 }
 
+export function renderChangelogSettings(): string {
+  return `
+      ${renderSettingsHeader("Changelog")}
+      <div class="settings-detail changelog-detail">
+        <section class="changelog-list" aria-label="Annote release history">
+          ${changelog.map((entry) => `<article class="changelog-release">
+            <header class="changelog-release-head">
+              <h3>v${escapeHtml(entry.version)}</h3>
+              <time datetime="${escapeHtml(entry.date)}">${escapeHtml(formatChangelogDate(entry.date))}</time>
+            </header>
+            <ul>${entry.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+          </article>`).join("")}
+        </section>
+      </div>
+    `;
+}
+
 export function renderSettingsPageContent(data: SettingsViewData): string {
   if (data.settingsView === "mcp") return renderMcpSettings(data);
   if (data.settingsView === "help") return renderHelpSettings(data);
+  if (data.settingsView === "changelog") return renderChangelogSettings();
   return renderSettingsRoot(data);
 }
 

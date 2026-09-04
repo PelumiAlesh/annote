@@ -5,6 +5,7 @@ import {
   mcpNeedsApprovalStatus,
   mcpStatusLabel,
   renderHelpSettings,
+  renderChangelogSettings,
   renderMcpSettings,
   renderSettingsContent,
   renderSettingsHeader,
@@ -28,6 +29,7 @@ function data(overrides = {}) {
     site: "localhost:4173",
     noticeHtml: "",
     shortcuts: { pick: "⌥P", copy: "⌥C", del: "⌥⌫" },
+    lastSeenChangelogVersion: ANNOTE_VERSION,
     ...overrides,
   };
 }
@@ -68,6 +70,28 @@ test("nav rows expose status without nested buttons", () => {
   assertNoNestedButtons(html, "nav rows");
   assert.ok(html.includes("Permission needed"), "approval status missing");
   assert.ok(html.includes('role="button"'), "nav row role missing");
+});
+
+test("changelog is the last settings item and shows unread state only when needed", () => {
+  const unread = renderSettingsRoot(data({ lastSeenChangelogVersion: null }));
+  assert.ok(unread.includes('data-settings-view="changelog"'));
+  assert.ok(unread.includes('aria-label="Changelog, new updates"'));
+  assert.ok(unread.includes('class="settings-dot"'));
+  assert.ok(unread.lastIndexOf('data-settings-view="changelog"') > unread.lastIndexOf('data-settings-view="help"'));
+
+  const seen = renderSettingsRoot(data());
+  assert.ok(seen.includes('aria-label="Changelog"'));
+  assert.ok(!seen.includes('aria-label="Changelog, new updates"'));
+  assert.ok(!seen.includes('class="settings-dot"'));
+});
+
+test("changelog renders semantic releases with formatted dates", () => {
+  const html = renderChangelogSettings();
+  assert.ok(html.includes('<section class="changelog-list"'));
+  assert.ok(html.includes('<article class="changelog-release">'));
+  assert.ok(html.includes('<time datetime="2026-09-03">Sep 3</time>'));
+  assert.ok(html.includes("Added voice dictation for annotation feedback."));
+  assert.ok(html.indexOf("v0.1.7") < html.indexOf("v0.1.6"));
 });
 
 test("mcp views cover every status with setup copy intact", () => {

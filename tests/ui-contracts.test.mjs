@@ -117,7 +117,7 @@ test("shift multi-select preserves pristine composer and blocks dirty drafts", (
   assert.ok(keyUpBranch.includes('state.focusComposerOnRender = true;'));
   assert.ok(
     src.includes(
-      'const cursor = commentCursor(state.shiftSelecting || state.selectedElements.length > 1 ? "#7dd3fc" : "#ff7a1a")',
+      'const cursor = precisionCursor(state.shiftSelecting || state.selectedElements.length > 1 ? "#7dd3fc" : "#ff7a1a")',
     ),
   );
   const pointerMove = src.slice(src.indexOf("function onPointerMove"), src.indexOf("function openMultiSelectionComposer"));
@@ -128,6 +128,36 @@ test("shift multi-select preserves pristine composer and blocks dirty drafts", (
   assert.ok(clearComposer.includes("state.shiftSelecting = false;\n    if (state.active) setAnnotatingCursor(true);"));
   const openComposer = src.slice(src.indexOf("function openComposerForElement"), src.indexOf("function onPointerDown"));
   assert.ok(openComposer.includes("state.selectedElements = selectedElements;\n    if (state.active) setAnnotatingCursor(true);"));
+});
+
+test("picker cursor uses a centered four-arm precision reticle", () => {
+  const cursor = src.slice(src.indexOf("function precisionCursor"), src.indexOf("function setAnnotatingCursor"));
+  assert.ok(cursor.includes('const arms = "M12 1v8M12 15v8M1 12h8M15 12h8"'));
+  assert.ok(cursor.includes('<circle cx="12" cy="12"'));
+  assert.ok(cursor.includes('") 12 12, crosshair`'));
+  assert.ok(!cursor.includes('d="M5.5 4.5h13'), "comment bubble cursor returned");
+});
+
+test("collapsed launcher center and inner-radius seams share one animated color", () => {
+  assert.ok(src.includes("@property --fm-launcher-color"));
+  assert.ok(src.includes("@property --fm-launcher-border"));
+  assert.ok(src.includes("initial-value: #30302e;"));
+  assert.ok(src.includes("function registerAnimatedThemeProperties(): void"));
+  assert.ok(src.includes("css.registerProperty(property);"));
+  assert.ok(src.indexOf("registerAnimatedThemeProperties();") < src.lastIndexOf("createRoot();"));
+  assert.ok(src.includes("background: var(--fm-launcher-color);"));
+  assert.ok(src.includes("border: 1px solid var(--fm-launcher-border);"));
+  assert.ok(src.includes("border-right: 0;"));
+  assert.ok(src.includes('.fm-layer[data-theme="light"] .toolbar {'));
+  assert.ok(src.includes(':where(.toolbar, .launcher-wrap)'));
+  assert.ok(src.includes("var(--fm-launcher-color, var(--fm-surface)) 18px"));
+  assert.ok(src.includes("transition: --fm-launcher-color 140ms ease"));
+  assert.ok(!src.includes("transition: background 190ms ease-out;"));
+  assert.ok(src.includes("transition-property: --fm-launcher-color, --fm-launcher-border, box-shadow;"));
+  assert.ok(src.includes("--fm-launcher-color: #232323;"));
+  assert.ok(src.includes("--fm-launcher-color: #f1f0ed;"));
+  assert.ok(src.includes("--fm-launcher-border: #d6d2c8;"));
+  assert.ok(src.includes("--fm-launcher-border: #c5c1b7;"));
 });
 
 test("style-editor controls expose tooltips", () => {
@@ -150,6 +180,13 @@ test("four-sided style controls identify every input with directional tooltips",
     assert.ok(src.includes(`["${position}", parts[`), `missing box side ${position}`);
   }
   assert.ok(src.includes('data-tooltip="${escapeHtml(inputLabel)}"'));
+});
+
+test("opening changelog marks the latest entry seen before navigating", () => {
+  assert.ok(src.includes('if (view === "changelog") state.lastSeenChangelogVersion = markLatestChangelogSeen();'));
+  assert.ok(src.includes("state.lastSeenChangelogVersion = loadLastSeenChangelogVersion();"));
+  assert.ok(src.includes('control.getAttribute("role") === "button"'));
+  assert.ok(src.includes('event.key !== "Enter" && event.key !== " "'));
 });
 
 test("structure section animates open", () => {
@@ -247,11 +284,11 @@ test("theme control stays compact and borderless", () => {
 
 test("toolbar, markers, and picking retain their intended themed states", () => {
   assert.ok(
-    src.includes('radial-gradient(circle at 0 0, transparent 17px, var(--fm-border) 17px 18px, var(--fm-surface) 18px)'),
+    src.includes('radial-gradient(circle at 0 0, transparent 17px, var(--fm-launcher-border, var(--fm-border)) 17px 18px, var(--fm-launcher-color, var(--fm-surface)) 18px)'),
     "top inner toolbar radius outline missing",
   );
   assert.ok(
-    src.includes('radial-gradient(circle at 0 100%, transparent 17px, var(--fm-border) 17px 18px, var(--fm-surface) 18px)'),
+    src.includes('radial-gradient(circle at 0 100%, transparent 17px, var(--fm-launcher-border, var(--fm-border)) 17px 18px, var(--fm-launcher-color, var(--fm-surface)) 18px)'),
     "bottom inner toolbar radius outline missing",
   );
   assert.ok(src.includes('.fm-layer[data-theme="light"].active .toolbar .pick-toggle'), "light active picker color missing");

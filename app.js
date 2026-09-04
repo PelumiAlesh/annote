@@ -10,6 +10,30 @@ const bookmarkletCode = window.AnnoteBookmarklet
 const bookmarklet = document.querySelector("[data-bookmarklet]");
 if (bookmarklet && bookmarkletCode) bookmarklet.setAttribute("href", bookmarkletCode);
 
+// Page-level theme control. It intentionally starts fresh in Light so the
+// Opposite Page demonstration remains predictable on every load.
+const demoThemeToggle = document.querySelector("[data-demo-theme-toggle]");
+function syncDemoThemeToggle() {
+  const dark = document.body.dataset.theme === "dark";
+  demoThemeToggle?.setAttribute("aria-pressed", String(dark));
+  demoThemeToggle?.setAttribute("aria-label", `Switch page to ${dark ? "light" : "dark"} theme`);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#11110f" : "#f3f1ea");
+}
+function setDemoTheme(theme) {
+  document.body.dataset.theme = theme === "dark" ? "dark" : "light";
+  syncDemoThemeToggle();
+}
+if (demoThemeToggle) {
+  setDemoTheme("light");
+  demoThemeToggle.addEventListener("click", () => {
+    setDemoTheme(document.body.dataset.theme === "dark" ? "light" : "dark");
+  });
+  new MutationObserver(syncDemoThemeToggle).observe(document.body, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
+}
+
 let bookmarkletDragGhost = null;
 function cleanupBookmarkletGhost() {
   if (bookmarkletDragGhost) {

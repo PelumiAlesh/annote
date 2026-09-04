@@ -43,7 +43,7 @@ This boundary prevents flicker. A transient interaction must not replace the too
 | --- | --- |
 | Toolbar collapsed | Only the launcher is visible. This is the default state. |
 | Toolbar expanded | Toolbar remains expanded until Collapse or Close is invoked. |
-| Picker active | Page cursor communicates annotation mode; hover outline follows eligible elements. |
+| Picker active | A four-arm reticle uses its visible center as the exact browser hotspot; orange communicates single selection and blue communicates multi-selection. The hover outline follows eligible elements. |
 | Shift multi-select | A pristine composer yields to selection immediately on Shift-down without replacing its focused DOM node. Its last page-pointer target becomes a blue hover outline immediately, the cursor switches to blue from keyboard state, and both continue tracking during selection. Releasing Shift restores the composer or opens the multi-element composer; clearing the selection or returning to one target restores orange. |
 | Dirty composer + Shift | Shift does not enter multi-select or dismiss the composer once comment or style changes exist. |
 | Composer open | Picking is locked to the selected element. Outside clicks shake the existing composer. |

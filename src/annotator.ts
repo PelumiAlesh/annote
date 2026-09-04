@@ -97,6 +97,10 @@ import {
   type ResolvedTheme,
   type ThemePreference,
 } from "./theme";
+import {
+  loadLastSeenChangelogVersion,
+  markLatestChangelogSeen,
+} from "./changelog";
 
 (() => {
   type Intent = AnnoteIntent;
@@ -427,6 +431,7 @@ import {
     panelMode: "review" | "settings";
     settingsView: SettingsView;
     settings: FeedbackMarkSettings;
+    lastSeenChangelogVersion: string | null;
     mcpStatus: McpConnectionStatus;
     mcpSetupCopyState: "idle" | "copied" | "failed";
     annotations: LiveAnnotation[];
@@ -513,6 +518,7 @@ import {
     panelMode: "review",
     settingsView: "root",
     settings: { ...DEFAULT_SETTINGS },
+    lastSeenChangelogVersion: null,
     mcpStatus: "companion-not-found",
     mcpSetupCopyState: "idle",
     annotations: [],
@@ -2944,17 +2950,18 @@ import {
     return { parent, selected: element, children, siblings, childrenTruncated, siblingsTruncated };
   }
 
-  function commentCursor(fill = "#ff7a1a"): string {
+  function precisionCursor(color = "#ff7a1a"): string {
+    const arms = "M12 1v8M12 15v8M1 12h8M15 12h8";
     const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="${fill}" stroke="#000000" stroke-width="1.5" d="M5.5 4.5h13a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4.7 3.1c-.7.5-1.6-.1-1.4-1l.7-2.1h-.6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"/></svg>`;
-    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 4 4, crosshair`;
+      `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="${arms}" fill="none" stroke="#000" stroke-width="3.5"/><path d="${arms}" fill="none" stroke="${color}" stroke-width="1.5"/><circle cx="12" cy="12" r="1.5" fill="${color}" stroke="#000" stroke-width="1"/></svg>`;
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, crosshair`;
   }
 
   function setAnnotatingCursor(enabled: boolean): void {
     if (enabled) {
       if (state.previousCursor === null) state.previousCursor = document.documentElement.style.cursor;
       if (state.previousBodyCursor === null) state.previousBodyCursor = document.body.style.cursor;
-      const cursor = commentCursor(state.shiftSelecting || state.selectedElements.length > 1 ? "#7dd3fc" : "#ff7a1a");
+      const cursor = precisionCursor(state.shiftSelecting || state.selectedElements.length > 1 ? "#7dd3fc" : "#ff7a1a");
       document.documentElement.style.cursor = cursor;
       document.body.style.cursor = cursor;
       document.documentElement.classList.add("feedback-mark-picking");
@@ -3112,6 +3119,29 @@ import {
     return clampedToolbarRailTop(Number.POSITIVE_INFINITY, railHeight);
   }
 
+  function registerAnimatedThemeProperties(): void {
+    const css = window.CSS as typeof CSS & {
+      registerProperty?: (definition: {
+        name: string;
+        syntax: string;
+        inherits: boolean;
+        initialValue: string;
+      }) => void;
+    };
+    if (typeof css?.registerProperty !== "function") return;
+    const properties = [
+      { name: "--fm-launcher-color", syntax: "<color>", inherits: true, initialValue: "#1a1a1a" },
+      { name: "--fm-launcher-border", syntax: "<color>", inherits: true, initialValue: "#30302e" },
+    ];
+    for (const property of properties) {
+      try {
+        css.registerProperty(property);
+      } catch {
+        // The document-level registry survives Annote remounts, so duplicates are expected.
+      }
+    }
+  }
+
   function createRoot(): void {
     const existing = document.getElementById(ROOT_ID);
     if (existing) existing.remove();
@@ -3184,6 +3214,16 @@ import {
 
   function styles(): string {
     return `
+      @property --fm-launcher-color {
+        syntax: "<color>";
+        inherits: true;
+        initial-value: #1a1a1a;
+      }
+      @property --fm-launcher-border {
+        syntax: "<color>";
+        inherits: true;
+        initial-value: #30302e;
+      }
       :host, * { box-sizing: border-box; }
       :host { all: initial; color-scheme: dark; }
       :host([data-annote-theme="light"]) { color-scheme: light; }
@@ -3236,6 +3276,8 @@ import {
         border-radius: 8px;
       }
       .toolbar {
+        --fm-launcher-color: #1a1a1a;
+        --fm-launcher-border: #30302e;
         position: fixed;
         right: 0;
         top: var(--fm-rail-top, 260px);
@@ -3249,6 +3291,7 @@ import {
         backdrop-filter: blur(18px);
         transform-origin: right center;
         color: var(--fm-text);
+        background: var(--fm-launcher-color);
         border-radius: 14px 0 0 14px;
         box-shadow: 0 2px 8px rgba(0,0,0,.2), 0 4px 16px rgba(0,0,0,.1), 0 0 0 1px rgba(255,255,255,.06);
       }
@@ -3270,7 +3313,7 @@ import {
         right: -1px;
         width: 19px;
         height: 19px;
-        background: radial-gradient(circle at 0 0, transparent 17px, var(--fm-border) 17px 18px, var(--fm-surface) 18px);
+        background: radial-gradient(circle at 0 0, transparent 17px, var(--fm-launcher-border, var(--fm-border)) 17px 18px, var(--fm-launcher-color, var(--fm-surface)) 18px);
       }
       .toolbar::after,
       .launcher-wrap::after {
@@ -3278,7 +3321,7 @@ import {
         right: -1px;
         width: 19px;
         height: 19px;
-        background: radial-gradient(circle at 0 100%, transparent 17px, var(--fm-border) 17px 18px, var(--fm-surface) 18px);
+        background: radial-gradient(circle at 0 100%, transparent 17px, var(--fm-launcher-border, var(--fm-border)) 17px 18px, var(--fm-launcher-color, var(--fm-surface)) 18px);
       }
       .toolbar.opening {
         animation: fm-toolbar-open 400ms cubic-bezier(.19,1,.22,1);
@@ -3311,6 +3354,8 @@ import {
         background: rgba(255,255,255,.18);
       }
       .launcher-wrap {
+        --fm-launcher-color: #1a1a1a;
+        --fm-launcher-border: #30302e;
         position: fixed;
         right: 0;
         top: var(--fm-rail-top, 260px);
@@ -3319,13 +3364,16 @@ import {
         border-radius: 14px 0 0 14px;
         display: grid;
         place-items: center;
-        background: #1a1a1a;
+        background: var(--fm-launcher-color);
+        border: 1px solid var(--fm-launcher-border);
+        border-right: 0;
         cursor: pointer;
-        transition: background 140ms ease, box-shadow 140ms ease;
+        transition: --fm-launcher-color 140ms ease, --fm-launcher-border 140ms ease, box-shadow 140ms ease;
       }
       .launcher-wrap:hover,
       .launcher-wrap:focus-visible {
-        background: #232323;
+        --fm-launcher-color: #232323;
+        --fm-launcher-border: #454540;
         box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.24);
         outline: none;
       }
@@ -5700,8 +5748,9 @@ import {
       .settings-dot {
         width: 7px;
         height: 7px;
+        flex: 0 0 7px;
         border-radius: 999px;
-        background: rgba(255,255,255,.28);
+        background: var(--fm-orange);
       }
       .settings-toggle {
         position: relative;
@@ -5747,6 +5796,46 @@ import {
         gap: 10px;
         padding: 12px;
         overflow: auto;
+      }
+      .changelog-detail {
+        align-content: start;
+      }
+      .changelog-list {
+        display: grid;
+        gap: 18px;
+      }
+      .changelog-release {
+        display: grid;
+        gap: 7px;
+      }
+      .changelog-release-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .changelog-release h3 {
+        margin: 0;
+        color: var(--fm-text-strong);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .changelog-release time {
+        color: var(--fm-text-subtle);
+        font-size: 10px;
+        white-space: nowrap;
+      }
+      .changelog-release ul {
+        display: grid;
+        gap: 4px;
+        margin: 0;
+        padding-left: 16px;
+        color: var(--fm-text-muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+      .changelog-release li::marker {
+        color: var(--fm-text-subtle);
       }
       .settings-copy {
         margin: 0;
@@ -6029,15 +6118,33 @@ import {
       .hidden { display: none; }
       .fm-layer.theme-transitioning,
       .fm-layer.theme-transitioning :where(.toolbar, .composer, .panel, .tip, .launcher-wrap, .confirm, .toolbar-group-tooltip, .icon-btn, .btn, .text-btn, input, textarea, select, .settings-row, .settings-help-tip, .settings-toggle, .settings-toggle::after, .settings-command, .settings-kbd, .item, .item-head, .style-details, .structure-section, .structure-row, .token-menu, .intent-menu, .marker-tip, .toast) {
-        transition-property: background-color, color, border-color, box-shadow, fill, stroke;
+        transition-property: background-color, color, border-color, box-shadow, fill, stroke, --fm-launcher-color, --fm-launcher-border;
         transition-duration: 190ms;
         transition-timing-function: ease-out;
       }
+      .fm-layer.theme-transitioning :where(.toolbar, .launcher-wrap) {
+        transition-property: --fm-launcher-color, --fm-launcher-border, box-shadow;
+      }
       .fm-layer[data-theme="light"] { color: var(--fm-text); }
-      .fm-layer[data-theme="light"] :where(.toolbar, .composer, .panel, .tip, .launcher-wrap, .toolbar-group-tooltip, .marker-tip, .confirm) {
+      .fm-layer[data-theme="light"] :where(.composer, .panel, .tip, .toolbar-group-tooltip, .marker-tip, .confirm) {
         background-color: var(--fm-surface);
         color: var(--fm-text);
         border-color: var(--fm-border);
+      }
+      .fm-layer[data-theme="light"] .toolbar {
+        --fm-launcher-color: #fbfaf8;
+        --fm-launcher-border: #d6d2c8;
+        color: var(--fm-text);
+      }
+      .fm-layer[data-theme="light"] .launcher-wrap {
+        --fm-launcher-color: #fbfaf8;
+        --fm-launcher-border: #d6d2c8;
+        color: var(--fm-text);
+      }
+      .fm-layer[data-theme="light"] .launcher-wrap:hover,
+      .fm-layer[data-theme="light"] .launcher-wrap:focus-visible {
+        --fm-launcher-color: #f1f0ed;
+        --fm-launcher-border: #c5c1b7;
       }
       .fm-layer[data-theme="light"] :where(.panel-head, .settings-section, .item, .style-details, .structure-section, .structure-group) {
         border-color: var(--fm-border);
@@ -7981,6 +8088,7 @@ import {
       site: location.host || location.origin,
       noticeHtml: noticeHtml(),
       shortcuts: { pick: SHORTCUTS["toggle-pick"], copy: SHORTCUTS.copy, del: SHORTCUTS.clear },
+      lastSeenChangelogVersion: state.lastSeenChangelogVersion,
     };
   }
 
@@ -9091,6 +9199,14 @@ import {
     }
     root.querySelectorAll<HTMLElement>("[data-action]:not([data-annote-bound])").forEach((control) => {
       control.dataset.annoteBound = "true";
+      if (!(control instanceof HTMLButtonElement) && control.getAttribute("role") === "button") {
+        control.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          event.stopPropagation();
+          control.click();
+        });
+      }
       control.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -9166,9 +9282,10 @@ import {
         }
         if (action === "settings-view" && control.dataset.settingsView) {
           const view = control.dataset.settingsView;
-          if (view === "root" || view === "mcp" || view === "help") {
+          if (view === "root" || view === "mcp" || view === "help" || view === "changelog") {
             state.visible = true;
             state.panelMode = "settings";
+            if (view === "changelog") state.lastSeenChangelogVersion = markLatestChangelogSeen();
             transitionSettingsView(view);
           }
         }
@@ -10747,8 +10864,10 @@ import {
     } catch {
       state.micSupported = false;
     }
+    registerAnimatedThemeProperties();
     createRoot();
     state.settings = loadSettings();
+    state.lastSeenChangelogVersion = loadLastSeenChangelogVersion();
     state.annotations = loadAnnotations();
     state.mcpClient = createAnnoteMcpClient({
       getAnnotations,

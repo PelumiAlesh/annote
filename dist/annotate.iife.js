@@ -32804,7 +32804,82 @@
   }
 
   // src/version.ts
-  var ANNOTE_VERSION = "0.1.7";
+  var ANNOTE_VERSION = "0.2.0";
+
+  // src/changelog.ts
+  var changelog = [
+    {
+      version: "0.2.0",
+      date: "2026-09-04",
+      items: [
+        "Added Light, Dark and Opposite page themes.",
+        "Added Fix, Ask and Note annotation intents.",
+        "Added a Settings changelog with an unread update indicator.",
+        "Improved the composer and style editor across light and dark themes.",
+        "Added a centered precision cursor for selecting small elements."
+      ]
+    },
+    {
+      version: "0.1.7",
+      date: "2026-09-03",
+      items: [
+        "Added voice dictation for annotation feedback.",
+        "Improved Settings navigation and keyboard shortcuts.",
+        "Improved MCP connection reliability and safety."
+      ]
+    },
+    {
+      version: "0.1.6",
+      date: "2026-09-03",
+      items: [
+        "Added a Structure navigator for inspecting nearby elements.",
+        "Added background color editing in the style editor.",
+        "Improved element previews while exploring Structure."
+      ]
+    }
+  ];
+  var CHANGELOG_LAST_SEEN_STORAGE_KEY = "annote:last-seen-version";
+  function latestChangelogEntry() {
+    return changelog[0];
+  }
+  function latestChangelogVersion() {
+    return latestChangelogEntry()?.version ?? "";
+  }
+  function formatChangelogDate(isoDate, currentYear = (/* @__PURE__ */ new Date()).getUTCFullYear()) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+    if (!match) return isoDate;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return isoDate;
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      ...year === currentYear ? {} : { year: "numeric" },
+      timeZone: "UTC"
+    }).format(date);
+  }
+  function loadLastSeenChangelogVersion(storage = localStorage) {
+    try {
+      return storage.getItem(CHANGELOG_LAST_SEEN_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+  function markLatestChangelogSeen(storage = localStorage) {
+    const version = latestChangelogVersion();
+    if (!version) return "";
+    try {
+      storage.setItem(CHANGELOG_LAST_SEEN_STORAGE_KEY, version);
+    } catch {
+    }
+    return version;
+  }
+  function hasUnreadChangelog(lastSeenVersion) {
+    const latest = latestChangelogVersion();
+    return !!latest && latest !== lastSeenVersion;
+  }
 
   // src/settings-view.ts
   function mcpStatusLabel(status) {
@@ -32828,6 +32903,7 @@
     </div>`;
   }
   function renderSettingsRoot(data) {
+    const changelogUnread = hasUnreadChangelog(data.lastSeenChangelogVersion);
     return `
       <div class="panel-head">
         <div class="panel-title">
@@ -32866,6 +32942,12 @@
           <div class="settings-row" role="button" tabindex="0" data-action="settings-view" data-settings-view="help" aria-label="How to use">
             <span class="settings-row-label"><strong>How to use</strong></span>
             <span class="settings-row-meta"><span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
+          </div>
+        </section>
+        <section class="settings-section" aria-label="Changelog">
+          <div class="settings-row" role="button" tabindex="0" data-action="settings-view" data-settings-view="changelog" aria-label="Changelog${changelogUnread ? ", new updates" : ""}">
+            <span class="settings-row-label"><strong>Changelog</strong></span>
+            <span class="settings-row-meta">${changelogUnread ? `<span class="settings-dot" aria-hidden="true"></span>` : ""}<span class="settings-chevron" aria-hidden="true">&rsaquo;</span></span>
           </div>
         </section>
       </div>
@@ -32973,9 +33055,26 @@
       </div>
     `;
   }
+  function renderChangelogSettings() {
+    return `
+      ${renderSettingsHeader("Changelog")}
+      <div class="settings-detail changelog-detail">
+        <section class="changelog-list" aria-label="Annote release history">
+          ${changelog.map((entry) => `<article class="changelog-release">
+            <header class="changelog-release-head">
+              <h3>v${escapeHtml(entry.version)}</h3>
+              <time datetime="${escapeHtml(entry.date)}">${escapeHtml(formatChangelogDate(entry.date))}</time>
+            </header>
+            <ul>${entry.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+          </article>`).join("")}
+        </section>
+      </div>
+    `;
+  }
   function renderSettingsPageContent(data) {
     if (data.settingsView === "mcp") return renderMcpSettings(data);
     if (data.settingsView === "help") return renderHelpSettings(data);
+    if (data.settingsView === "changelog") return renderChangelogSettings();
     return renderSettingsRoot(data);
   }
   function renderSettingsContent(data) {
@@ -34278,6 +34377,13 @@
   ];
   var DARK_SIGNAL = /(?:^|[\s_-])(dark|night|black)(?:$|[\s_-])/i;
   var LIGHT_SIGNAL = /(?:^|[\s_-])(light|day)(?:$|[\s_-])/i;
+  var EXPLICIT_THEME_ATTRIBUTES = [
+    "data-theme",
+    "data-mode",
+    "data-color-mode",
+    "data-color-scheme",
+    "data-bs-theme"
+  ];
   function parseRgb(value) {
     const match = value.trim().match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i);
     if (!match) return null;
@@ -34311,8 +34417,15 @@
     if (LIGHT_SIGNAL.test(values)) return "light";
     return null;
   }
+  function explicitThemeSignal(element) {
+    if (!element) return null;
+    const values = EXPLICIT_THEME_ATTRIBUTES.map((name50) => element.getAttribute(name50)).filter(Boolean).join(" ");
+    if (DARK_SIGNAL.test(values)) return "dark";
+    if (LIGHT_SIGNAL.test(values)) return "light";
+    return null;
+  }
   function detectPageTheme(doc = document, getStyle = getComputedStyle) {
-    return classifiedBackground(doc.body, getStyle) ?? classifiedBackground(doc.documentElement, getStyle) ?? themeSignal(doc.body) ?? themeSignal(doc.documentElement) ?? (getStyle(doc.body ?? doc.documentElement).colorScheme.toLowerCase().split(/\s+/).includes("dark") ? "dark" : null) ?? "light";
+    return explicitThemeSignal(doc.body) ?? explicitThemeSignal(doc.documentElement) ?? classifiedBackground(doc.body, getStyle) ?? classifiedBackground(doc.documentElement, getStyle) ?? themeSignal(doc.body) ?? themeSignal(doc.documentElement) ?? (getStyle(doc.body ?? doc.documentElement).colorScheme.toLowerCase().split(/\s+/).includes("dark") ? "dark" : null) ?? "light";
   }
   function resolveTheme(preference, pageTheme) {
     if (preference === "opposite-page") return pageTheme === "dark" ? "light" : "dark";
@@ -34931,6 +35044,7 @@
       panelMode: "review",
       settingsView: "root",
       settings: { ...DEFAULT_SETTINGS },
+      lastSeenChangelogVersion: null,
       mcpStatus: "companion-not-found",
       mcpSetupCopyState: "idle",
       annotations: [],
@@ -37031,15 +37145,16 @@
       }
       return { parent, selected: element, children, siblings, childrenTruncated, siblingsTruncated };
     }
-    function commentCursor(fill = "#ff7a1a") {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="${fill}" stroke="#000000" stroke-width="1.5" d="M5.5 4.5h13a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4.7 3.1c-.7.5-1.6-.1-1.4-1l.7-2.1h-.6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"/></svg>`;
-      return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 4 4, crosshair`;
+    function precisionCursor(color = "#ff7a1a") {
+      const arms = "M12 1v8M12 15v8M1 12h8M15 12h8";
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="${arms}" fill="none" stroke="#000" stroke-width="3.5"/><path d="${arms}" fill="none" stroke="${color}" stroke-width="1.5"/><circle cx="12" cy="12" r="1.5" fill="${color}" stroke="#000" stroke-width="1"/></svg>`;
+      return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, crosshair`;
     }
     function setAnnotatingCursor(enabled) {
       if (enabled) {
         if (state.previousCursor === null) state.previousCursor = document.documentElement.style.cursor;
         if (state.previousBodyCursor === null) state.previousBodyCursor = document.body.style.cursor;
-        const cursor = commentCursor(state.shiftSelecting || state.selectedElements.length > 1 ? "#7dd3fc" : "#ff7a1a");
+        const cursor = precisionCursor(state.shiftSelecting || state.selectedElements.length > 1 ? "#7dd3fc" : "#ff7a1a");
         document.documentElement.style.cursor = cursor;
         document.body.style.cursor = cursor;
         document.documentElement.classList.add("feedback-mark-picking");
@@ -37181,6 +37296,20 @@
     function defaultToolbarRailTop(railHeight = TOOLBAR_RAIL_HEIGHT) {
       return clampedToolbarRailTop(Number.POSITIVE_INFINITY, railHeight);
     }
+    function registerAnimatedThemeProperties() {
+      const css = window.CSS;
+      if (typeof css?.registerProperty !== "function") return;
+      const properties2 = [
+        { name: "--fm-launcher-color", syntax: "<color>", inherits: true, initialValue: "#1a1a1a" },
+        { name: "--fm-launcher-border", syntax: "<color>", inherits: true, initialValue: "#30302e" }
+      ];
+      for (const property2 of properties2) {
+        try {
+          css.registerProperty(property2);
+        } catch {
+        }
+      }
+    }
     function createRoot() {
       const existing2 = document.getElementById(ROOT_ID);
       if (existing2) existing2.remove();
@@ -37246,6 +37375,16 @@
     }
     function styles() {
       return `
+      @property --fm-launcher-color {
+        syntax: "<color>";
+        inherits: true;
+        initial-value: #1a1a1a;
+      }
+      @property --fm-launcher-border {
+        syntax: "<color>";
+        inherits: true;
+        initial-value: #30302e;
+      }
       :host, * { box-sizing: border-box; }
       :host { all: initial; color-scheme: dark; }
       :host([data-annote-theme="light"]) { color-scheme: light; }
@@ -37298,6 +37437,8 @@
         border-radius: 8px;
       }
       .toolbar {
+        --fm-launcher-color: #1a1a1a;
+        --fm-launcher-border: #30302e;
         position: fixed;
         right: 0;
         top: var(--fm-rail-top, 260px);
@@ -37311,6 +37452,7 @@
         backdrop-filter: blur(18px);
         transform-origin: right center;
         color: var(--fm-text);
+        background: var(--fm-launcher-color);
         border-radius: 14px 0 0 14px;
         box-shadow: 0 2px 8px rgba(0,0,0,.2), 0 4px 16px rgba(0,0,0,.1), 0 0 0 1px rgba(255,255,255,.06);
       }
@@ -37332,7 +37474,7 @@
         right: -1px;
         width: 19px;
         height: 19px;
-        background: radial-gradient(circle at 0 0, transparent 17px, var(--fm-border) 17px 18px, var(--fm-surface) 18px);
+        background: radial-gradient(circle at 0 0, transparent 17px, var(--fm-launcher-border, var(--fm-border)) 17px 18px, var(--fm-launcher-color, var(--fm-surface)) 18px);
       }
       .toolbar::after,
       .launcher-wrap::after {
@@ -37340,7 +37482,7 @@
         right: -1px;
         width: 19px;
         height: 19px;
-        background: radial-gradient(circle at 0 100%, transparent 17px, var(--fm-border) 17px 18px, var(--fm-surface) 18px);
+        background: radial-gradient(circle at 0 100%, transparent 17px, var(--fm-launcher-border, var(--fm-border)) 17px 18px, var(--fm-launcher-color, var(--fm-surface)) 18px);
       }
       .toolbar.opening {
         animation: fm-toolbar-open 400ms cubic-bezier(.19,1,.22,1);
@@ -37373,6 +37515,8 @@
         background: rgba(255,255,255,.18);
       }
       .launcher-wrap {
+        --fm-launcher-color: #1a1a1a;
+        --fm-launcher-border: #30302e;
         position: fixed;
         right: 0;
         top: var(--fm-rail-top, 260px);
@@ -37381,13 +37525,16 @@
         border-radius: 14px 0 0 14px;
         display: grid;
         place-items: center;
-        background: #1a1a1a;
+        background: var(--fm-launcher-color);
+        border: 1px solid var(--fm-launcher-border);
+        border-right: 0;
         cursor: pointer;
-        transition: background 140ms ease, box-shadow 140ms ease;
+        transition: --fm-launcher-color 140ms ease, --fm-launcher-border 140ms ease, box-shadow 140ms ease;
       }
       .launcher-wrap:hover,
       .launcher-wrap:focus-visible {
-        background: #232323;
+        --fm-launcher-color: #232323;
+        --fm-launcher-border: #454540;
         box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 8px 24px rgba(0,0,0,.24);
         outline: none;
       }
@@ -39762,8 +39909,9 @@
       .settings-dot {
         width: 7px;
         height: 7px;
+        flex: 0 0 7px;
         border-radius: 999px;
-        background: rgba(255,255,255,.28);
+        background: var(--fm-orange);
       }
       .settings-toggle {
         position: relative;
@@ -39809,6 +39957,46 @@
         gap: 10px;
         padding: 12px;
         overflow: auto;
+      }
+      .changelog-detail {
+        align-content: start;
+      }
+      .changelog-list {
+        display: grid;
+        gap: 18px;
+      }
+      .changelog-release {
+        display: grid;
+        gap: 7px;
+      }
+      .changelog-release-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .changelog-release h3 {
+        margin: 0;
+        color: var(--fm-text-strong);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .changelog-release time {
+        color: var(--fm-text-subtle);
+        font-size: 10px;
+        white-space: nowrap;
+      }
+      .changelog-release ul {
+        display: grid;
+        gap: 4px;
+        margin: 0;
+        padding-left: 16px;
+        color: var(--fm-text-muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+      .changelog-release li::marker {
+        color: var(--fm-text-subtle);
       }
       .settings-copy {
         margin: 0;
@@ -40091,15 +40279,33 @@
       .hidden { display: none; }
       .fm-layer.theme-transitioning,
       .fm-layer.theme-transitioning :where(.toolbar, .composer, .panel, .tip, .launcher-wrap, .confirm, .toolbar-group-tooltip, .icon-btn, .btn, .text-btn, input, textarea, select, .settings-row, .settings-help-tip, .settings-toggle, .settings-toggle::after, .settings-command, .settings-kbd, .item, .item-head, .style-details, .structure-section, .structure-row, .token-menu, .intent-menu, .marker-tip, .toast) {
-        transition-property: background-color, color, border-color, box-shadow, fill, stroke;
+        transition-property: background-color, color, border-color, box-shadow, fill, stroke, --fm-launcher-color, --fm-launcher-border;
         transition-duration: 190ms;
         transition-timing-function: ease-out;
       }
+      .fm-layer.theme-transitioning :where(.toolbar, .launcher-wrap) {
+        transition-property: --fm-launcher-color, --fm-launcher-border, box-shadow;
+      }
       .fm-layer[data-theme="light"] { color: var(--fm-text); }
-      .fm-layer[data-theme="light"] :where(.toolbar, .composer, .panel, .tip, .launcher-wrap, .toolbar-group-tooltip, .marker-tip, .confirm) {
+      .fm-layer[data-theme="light"] :where(.composer, .panel, .tip, .toolbar-group-tooltip, .marker-tip, .confirm) {
         background-color: var(--fm-surface);
         color: var(--fm-text);
         border-color: var(--fm-border);
+      }
+      .fm-layer[data-theme="light"] .toolbar {
+        --fm-launcher-color: #fbfaf8;
+        --fm-launcher-border: #d6d2c8;
+        color: var(--fm-text);
+      }
+      .fm-layer[data-theme="light"] .launcher-wrap {
+        --fm-launcher-color: #fbfaf8;
+        --fm-launcher-border: #d6d2c8;
+        color: var(--fm-text);
+      }
+      .fm-layer[data-theme="light"] .launcher-wrap:hover,
+      .fm-layer[data-theme="light"] .launcher-wrap:focus-visible {
+        --fm-launcher-color: #f1f0ed;
+        --fm-launcher-border: #c5c1b7;
       }
       .fm-layer[data-theme="light"] :where(.panel-head, .settings-section, .item, .style-details, .structure-section, .structure-group) {
         border-color: var(--fm-border);
@@ -41847,7 +42053,8 @@
         setupCommand: ANNOTE_LOCAL_SETUP_COMMAND,
         site: location.host || location.origin,
         noticeHtml: noticeHtml(),
-        shortcuts: { pick: SHORTCUTS["toggle-pick"], copy: SHORTCUTS.copy, del: SHORTCUTS.clear }
+        shortcuts: { pick: SHORTCUTS["toggle-pick"], copy: SHORTCUTS.copy, del: SHORTCUTS.clear },
+        lastSeenChangelogVersion: state.lastSeenChangelogVersion
       };
     }
     function transitionSettingsView(view) {
@@ -42822,6 +43029,14 @@
       }
       root.querySelectorAll("[data-action]:not([data-annote-bound])").forEach((control) => {
         control.dataset.annoteBound = "true";
+        if (!(control instanceof HTMLButtonElement) && control.getAttribute("role") === "button") {
+          control.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            event.stopPropagation();
+            control.click();
+          });
+        }
         control.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -42895,9 +43110,10 @@
           }
           if (action === "settings-view" && control.dataset.settingsView) {
             const view = control.dataset.settingsView;
-            if (view === "root" || view === "mcp" || view === "help") {
+            if (view === "root" || view === "mcp" || view === "help" || view === "changelog") {
               state.visible = true;
               state.panelMode = "settings";
+              if (view === "changelog") state.lastSeenChangelogVersion = markLatestChangelogSeen();
               transitionSettingsView(view);
             }
           }
@@ -44361,8 +44577,10 @@
       } catch {
         state.micSupported = false;
       }
+      registerAnimatedThemeProperties();
       createRoot();
       state.settings = loadSettings();
+      state.lastSeenChangelogVersion = loadLastSeenChangelogVersion();
       state.annotations = loadAnnotations();
       state.mcpClient = createAnnoteMcpClient({
         getAnnotations,

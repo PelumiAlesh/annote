@@ -17,15 +17,24 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=0.2.0" />
 </head>
 <body>
   <header class="site-header shell">
     <a class="wordmark" href="#top" aria-label="Annote home">
       <span class="mark" aria-hidden="true"></span>
       annote
-      <span class="wordmark-version" data-version>v0.1.7</span>
+      <span class="wordmark-version" data-version>v0.2.0</span>
     </a>
+    <button class="demo-theme-switch" type="button" data-demo-theme-toggle aria-label="Switch page to dark theme" aria-pressed="false">
+      <span class="demo-theme-icon sun" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path></svg>
+      </span>
+      <span class="demo-theme-track" aria-hidden="true"><span class="demo-theme-thumb"></span></span>
+      <span class="demo-theme-icon moon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path></svg>
+      </span>
+    </button>
     <nav class="nav" aria-label="Primary navigation">
       <a href="#install">Install</a>
       <a href="#bookmarklet">Bookmarklet</a>
@@ -220,6 +229,6 @@ When you are done, explain how I should use Annote, tell me anything I need to r
 
   <div class="toast" role="status" aria-live="polite" data-toast></div>
   <script src="./bookmarklet-loader.js" defer></script>
-  <script src="./app.js" defer></script>
+  <script src="./app.js?v=0.2.0" defer></script>
 </body>
 </html>
