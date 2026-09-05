@@ -39,9 +39,22 @@ test("homepage theme transition covers the full page", () => {
   assert.ok(css.includes('--bg: #11110f;'));
   assert.ok(css.includes('--ink: #f3f1ea;'));
   assert.ok(css.includes("transition: background-color 520ms"));
+  assert.ok(css.includes(".hero {\n  padding: 112px 0 84px;"));
+  const heroBlock = css.slice(css.indexOf(".hero {"), css.indexOf(".eyebrow, .kicker"));
+  assert.ok(heroBlock.includes("border-color 420ms ease"));
   assert.ok(css.includes(".hero .button.primary"));
   assert.ok(css.includes("background: var(--card-bg);"));
   assert.ok(css.includes("background: var(--control-bg);"));
+});
+
+test("bookmarklet copy action uses an icon and regular text", () => {
+  assert.ok(html.includes('class="copy-button bookmarklet-copy-button"'));
+  assert.ok(html.includes('class="copy-icon"'));
+  assert.ok(html.includes("<span>Copy bookmarklet link</span>"));
+  const bookmarkletCopyBlock = css.slice(css.indexOf(".bookmarklet-copy-button {"), css.indexOf(".bookmarklet-copy-button:hover"));
+  assert.ok(bookmarkletCopyBlock.includes("font-family: var(--sans);"));
+  assert.ok(bookmarkletCopyBlock.includes("font-weight: 400;"));
+  assert.ok(bookmarkletCopyBlock.includes("color: var(--body-copy);"));
 });
 
 test("page theme switch uses opaque palette surfaces", () => {

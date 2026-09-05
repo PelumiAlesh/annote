@@ -219,7 +219,7 @@ body[data-theme="dark"] .demo-theme-icon.moon {
   color: var(--demo-home-ink);
   box-shadow: 0 0 0 100vmax var(--demo-home-bg);
   clip-path: inset(0 -100vmax);
-  transition: background-color 520ms cubic-bezier(.22,1,.36,1), color 420ms ease, box-shadow 520ms cubic-bezier(.22,1,.36,1);
+  transition: background-color 520ms cubic-bezier(.22,1,.36,1), color 420ms ease, border-color 420ms ease, box-shadow 520ms cubic-bezier(.22,1,.36,1);
 }
 .eyebrow, .kicker, .quick-label, .section-index, .demo-label {
   font-family: var(--mono);
@@ -346,6 +346,17 @@ body[data-theme="dark"] .demo-theme-icon.moon {
   padding: 8px;
 }
 .copy-button:hover { color: var(--ink); }
+.copy-button .copy-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  flex: 0 0 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .quick .copy-button {
   background: rgb(13, 13, 13);
   color: rgb(255, 255, 255);
@@ -450,6 +461,19 @@ summary {
   align-items: center;
   gap: 12px;
 }
+.bookmarklet-copy-button {
+  min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--body-copy);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  transition: color 420ms ease;
+}
+.bookmarklet-copy-button:hover { color: var(--ink); }
 .or-note {
   color: var(--muted);
   font-family: var(--mono);
