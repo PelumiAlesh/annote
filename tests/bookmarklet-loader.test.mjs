@@ -307,3 +307,11 @@ test("href keeps annote@latest, stays self-contained", () => {
   assert.ok(!href.includes("eval(") && !href.includes("new Function"), "no eval tricks");
   assert.ok(href.includes("jsdelivr"), "must load from jsDelivr");
 });
+
+test("href remains valid if browser bookmark storage collapses newlines", () => {
+  const env = makeEnv();
+  const href = env.api.href();
+  const js = href.replace(/^javascript:/, "");
+  assert.doesNotThrow(() => new Function(js));
+  assert.doesNotThrow(() => new Function(js.replace(/\n/g, " ")));
+});

@@ -269,11 +269,14 @@ function annoteBookmarkletBootstrap(bundleUrl) {
 
 (function (g) {
   var BOOKMARKLET_BUNDLE = "https://cdn.jsdelivr.net/npm/annote@latest/dist/annote.iife.js";
+  function bookmarkletSource() {
+    return annoteBookmarkletBootstrap.toString().replace(/(^|\n)\s*\/\/[^\n]*/g, "$1");
+  }
   function load(bundleUrl) {
     annoteBookmarkletBootstrap(bundleUrl || BOOKMARKLET_BUNDLE);
   }
   function href(bundleUrl) {
-    return "javascript:void((" + annoteBookmarkletBootstrap.toString() + ")(" + JSON.stringify(bundleUrl || BOOKMARKLET_BUNDLE) + "))";
+    return "javascript:void((" + bookmarkletSource() + ")(" + JSON.stringify(bundleUrl || BOOKMARKLET_BUNDLE) + "))";
   }
   try {
     g.AnnoteBookmarklet = {
